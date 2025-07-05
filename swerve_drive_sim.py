@@ -16,6 +16,7 @@ BUMPER_THICKNESS_IN = 1.0
 ROBOT_WEIGHT_LBS = 20.0
 NUM_DRIVE_MOTORS = 8
 WHEEL_DIAMETER_INCHES = 2.5
+TARGET_V_MAX_MS = 3.0
 
 # --- Environment Constants ---
 COEFFICIENT_OF_FRICTION = 1.2
@@ -56,24 +57,35 @@ def control_law_drag_race(state):
     """Control law for constant max acceleration."""
     return state['max_accel']
 
-def control_law_trapezoidal(state):
-    """Control law for a symmetric accel/decel profile."""
+def control_law_trapezoidal_unlimited(state):
+    """Control law for a symmetric accel/decel profile without a speed limit."""
     if state['position'] < state['distance_m'] / 2.0:
         return state['max_accel']
     else:
         return -state['max_accel']
 
-def run_simulation(distance_m, max_accel, control_law_fn, dt=0.001):
-    """
-    Runs a generic simulation loop, using a callback to get acceleration.
-    """
+def control_law_trapezoidal_limited(state):
+    """Control law for a trapezoidal profile with a max velocity limit."""
+    v_peak_triangular = np.sqrt(state['distance_m'] * state['max_accel'])
+    actual_v_max = min(state['target_v_max'], v_peak_triangular)
+    braking_distance = (actual_v_max**2) / (2 * state['max_accel'])
+
+    if state['position'] >= (state['distance_m'] - braking_distance):
+        return -state['max_accel']
+    elif state['velocity'] >= actual_v_max:
+        return 0
+    else:
+        return state['max_accel']
+
+def run_simulation(distance_m, max_accel, control_law_fn, target_v_max=None, dt=0.001):
+    """Runs a generic simulation loop, using a callback to get acceleration."""
     time, position, velocity = 0, 0, 0
     t_series, pos_series, vel_series, accel_series = [0], [0], [0], [0]
     
     while position < distance_m:
         current_state = {
             'time': time, 'position': position, 'velocity': velocity,
-            'distance_m': distance_m, 'max_accel': max_accel
+            'distance_m': distance_m, 'max_accel': max_accel, 'target_v_max': target_v_max
         }
         current_accel = control_law_fn(current_state)
         position, velocity = step_sim(position, velocity, current_accel, dt)
@@ -102,6 +114,7 @@ def print_summary(sim_data, title):
         total_time = data['time'][-1]
         print(f"{name:<12} | {peak_vel:<20.2f} | {total_time:<15.3f}")
     print("--------------------------------------------------")
+
 
 def plot_field_paths():
     """Generates a top-down plot of the field and simulated paths."""
@@ -160,6 +173,10 @@ def plot_kinematics(sim_data, title):
     axes[1, 0].set_ylabel('Velocity (m/s)')
     axes[2, 0].set_ylabel('Acceleration (m/s^2)')
     axes[2, 0].set_xlim(0, max_time * 1.05)
+    # Set a symmetric y-axis for acceleration
+    max_abs_accel = np.max(np.abs(axes[2, 0].get_ylim()))
+    axes[2, 0].set_ylim(-max_abs_accel, max_abs_accel)
+
 
 # =================================================================================
 # --- MAIN EXECUTION ---
@@ -173,18 +190,26 @@ def main():
         for name, dist_m in PATHS_M.items():
             drag_race_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_drag_race)
         
-        # --- Run Trapezoidal Sim ---
-        trapezoidal_sim_data = {}
+        # --- Run Unlimited Trapezoidal Sim ---
+        trap_unlimited_sim_data = {}
         for name, dist_m in PATHS_M.items():
-            trapezoidal_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_trapezoidal)
+            trap_unlimited_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_trapezoidal_unlimited)
         
+        # --- Run V-Max Limited Trapezoidal Sim ---
+        trap_limited_sim_data = {}
+        for name, dist_m in PATHS_M.items():
+            trap_limited_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_trapezoidal_limited, target_v_max=TARGET_V_MAX_MS)
+
         # --- Output Results ---
         print_summary(drag_race_sim_data, "Drag Race Simulation Results")
-        print_summary(trapezoidal_sim_data, "Trapezoidal Profile Simulation Results")
+        print_summary(trap_unlimited_sim_data, "Unlimited Trapezoidal Profile Results")
+        print_summary(trap_limited_sim_data, "V-Max Limited Trapezoidal Profile Results")
         
+        # --- Plotting ---
         plot_field_paths()
         plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
-        plot_kinematics(trapezoidal_sim_data, title='Kinematic Profiles (Trapezoidal)')
+        plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Unlimited Trapezoid)')
+        plot_kinematics(trap_limited_sim_data, title='Kinematic Profiles (V-Max Limited Trapezoid @ 3.0 m/s)')
         
         plt.show()
 
