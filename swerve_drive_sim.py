@@ -22,7 +22,7 @@ total_robot_width_in = ROBOT_DIM_IN + (2 * BUMPER_THICKNESS_IN)
 path_side_in = FIELD_SIDE_IN - total_robot_width_in
 path_diagonal_in = (FIELD_SIDE_IN - total_robot_width_in) * np.sqrt(2)
 arc_radius_in = path_side_in
-path_curve_in = (np.pi / 2) * path_side_in
+path_curve_in = (np.pi / 2) * arc_radius_in
 
 # --- Conversions to SI Units (for Physics Calculations) ---
 ROBOT_MASS_KG = ROBOT_WEIGHT_LBS * 0.453592
@@ -74,28 +74,27 @@ ax.add_patch(field_boundary)
 # Robot's drivable area
 robot_half_width = total_robot_width_in / 2
 drivable_area_origin = robot_half_width
-drivable_area_size = FIELD_SIDE_IN - total_robot_width_in
-drivable_area = plt.Rectangle((drivable_area_origin, drivable_area_origin), drivable_area_size, drivable_area_size, facecolor='none', edgecolor='gray', linestyle=':')
-ax.add_patch(drivable_area)
 
 # Define path start and end points (center of robot)
 start_pos = (robot_half_width, robot_half_width)
-end_pos_side = (robot_half_width, FIELD_SIDE_IN - robot_half_width)
+end_pos_side = (FIELD_SIDE_IN - robot_half_width, robot_half_width) 
 end_pos_diag = (FIELD_SIDE_IN - robot_half_width, FIELD_SIDE_IN - robot_half_width)
 
 # Plot Paths
-# 1. Side Path
+# 1. Side Path (horizontal)
 ax.plot([start_pos[0], end_pos_side[0]], [start_pos[1], end_pos_side[1]], color='cyan', label=f'Side Path ({path_side_in:.1f}")', linestyle='--')
+
 # 2. Diagonal Path
 ax.plot([start_pos[0], end_pos_diag[0]], [start_pos[1], end_pos_diag[1]], color='lime', label=f'Diagonal Path ({path_diagonal_in:.1f}")', linestyle='--')
+
 # 3. Curved Path (Quarter circle arc)
-arc_center = (FIELD_SIDE_IN - robot_half_width, robot_half_width)
-theta = np.linspace(np.pi, np.pi / 2, 100) # 180 to 90 degrees
+arc_center = (robot_half_width, FIELD_SIDE_IN - robot_half_width) # Center moved to top-left of drivable area
+theta = np.linspace(3 * np.pi / 2, 2 * np.pi, 100) # 270 to 360 degrees
 x_arc = arc_center[0] + arc_radius_in * np.cos(theta)
 y_arc = arc_center[1] + arc_radius_in * np.sin(theta)
 ax.plot(x_arc, y_arc, color='magenta', label=f'Curved Path ({path_curve_in:.1f}")', linestyle='--')
 
-
+# Set Plot Options
 ax.set_xlim(0, FIELD_SIDE_IN)
 ax.set_ylim(0, FIELD_SIDE_IN)
 ax.set_xlabel('Field X-Position (inches)')
