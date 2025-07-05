@@ -10,7 +10,6 @@ m3508 = Motor(
     i_no_load=0.2
 )
 m3508.print_specs()
-m3508.plot_performance_curves(False)
 
 neo550 = Motor.from_stall_specs(
     name='NEO 550',
@@ -21,4 +20,3 @@ neo550 = Motor.from_stall_specs(
     i_no_load=1.4
 )
 neo550.print_specs()
-neo550.plot_performance_curves(False)
