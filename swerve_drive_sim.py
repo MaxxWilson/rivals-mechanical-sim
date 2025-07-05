@@ -1,6 +1,7 @@
 # swerve_design_sim.py
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
 
 def run_kinematic_simulation(params):
     """
@@ -56,7 +57,7 @@ def print_summary(results):
     print(f"Curved Path ({results['path_curve_in']:.2f} in): \t{results['v_final_curve_ms']:.2f} m/s")
     print("---------------------------------------------------------")
 
-def plot_paths(results):
+def plot_field_paths(results):
     """
     Generates a top-down plot of the field and simulated paths.
     """
@@ -93,26 +94,80 @@ def plot_paths(results):
     ax.set_title('Top-Down View of Simulated Paths')
     ax.legend(loc='upper right')
     ax.grid(True, alpha=0.2)
-    plt.show()
+
+def plot_kinematics(results):
+    """
+    Generates a 2x3 plot for pos and vel for each path on a common time scale.
+    """
+    paths = {
+        'Side': {'v_final': results['v_final_side_ms'], 'color': 'cyan'},
+        'Diagonal': {'v_final': results['v_final_diagonal_ms'], 'color': 'lime'},
+        'Curved': {'v_final': results['v_final_curve_ms'], 'color': 'magenta'}
+    }
+
+    accel = results['max_acceleration_ms2']
+
+    # Determine the longest time to set a common x-axis
+    max_time = 0
+    for name, data in paths.items():
+        total_time = data['v_final'] / accel
+        paths[name]['total_time'] = total_time
+        if total_time > max_time:
+            max_time = total_time
+
+    # Create a 2x3 grid of subplots, sharing axes appropriately
+    fig, axes = plt.subplots(2, 3, figsize=(15, 6), sharey='row', sharex=True, tight_layout=True)
+    fig.suptitle('Kinematic Profiles for Each Path', fontsize=16)
+    plt.style.use('dark_background')
+
+    # Loop through each path and its corresponding column index
+    for i, (name, data) in enumerate(paths.items()):
+        t = np.linspace(0, data['total_time'], 200)
+        position = 0.5 * accel * t**2
+        velocity = accel * t
+
+        # --- Plotting on the grid ---
+        # Position Plot (Row 0)
+        axes[0, i].plot(t, position, color=data['color'])
+        axes[0, i].set_title(f'{name} Path')
+        axes[0, i].grid(True, linestyle='--', alpha=0.3)
+
+        # Velocity Plot (Row 1)
+        axes[1, i].plot(t, velocity, color=data['color'])
+        axes[1, i].set_xlabel('Time (s)')
+        axes[1, i].grid(True, linestyle='--', alpha=0.3)
+
+    # Set common axis properties
+    axes[0, 0].set_ylabel('Position (m)')
+    axes[1, 0].set_ylabel('Velocity (m/s)')
+    axes[1, 0].set_xlim(0, max_time * 1.05) # Set shared x-axis limit
 
 def main():
     """
     Main function to define parameters and run the simulation.
     """
-    params = {
-        'FIELD_SIDE_IN': 144.0,
-        'ROBOT_DIM_IN': 12.0,
-        'BUMPER_THICKNESS_IN': 1.0,
-        'ROBOT_WEIGHT_LBS': 20.0,
-        'NUM_DRIVE_MOTORS': 8,
-        'WHEEL_DIAMETER_INCHES': 2.5,
-        'COEFFICIENT_OF_FRICTION': 1.2,
-        'GRAVITY_MS2': 9.81
-    }
+    try:
+        params = {
+            'FIELD_SIDE_IN': 144.0,
+            'ROBOT_DIM_IN': 12.0,
+            'BUMPER_THICKNESS_IN': 1.0,
+            'ROBOT_WEIGHT_LBS': 20.0,
+            'NUM_DRIVE_MOTORS': 8,
+            'WHEEL_DIAMETER_INCHES': 2.5,
+            'COEFFICIENT_OF_FRICTION': 1.2,
+            'GRAVITY_MS2': 9.81
+        }
 
-    results = run_kinematic_simulation(params)
-    print_summary(results)
-    plot_paths(results)
+        results = run_kinematic_simulation(params)
+        print_summary(results)
+        plot_field_paths(results)
+        plot_kinematics(results)
+
+        plt.show() # Show all generated plots at the end
+
+    except KeyboardInterrupt:
+        print("\nSimulation aborted by user. Exiting.")
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
