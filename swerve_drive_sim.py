@@ -43,7 +43,7 @@ MAX_ACCELERATION_MS2 = MAX_TRACTIVE_FORCE_N / ROBOT_MASS_KG
 TORQUE_PER_MOTOR_BEFORE_SLIP_NM = (MAX_TRACTIVE_FORCE_N * WHEEL_RADIUS_M) / NUM_DRIVE_MOTORS
 
 # =================================================================================
-# --- SIMULATION ENGINE ---
+# --- SIMULATION ENGINE & CONTROL LAWS ---
 # =================================================================================
 
 def step_sim(position, velocity, acceleration, dt):
@@ -52,39 +52,56 @@ def step_sim(position, velocity, acceleration, dt):
     new_position = position + new_velocity * dt
     return new_position, new_velocity
 
-def run_drag_race(distance_m, acceleration_ms2, dt=0.001):
-    """Runs a constant acceleration simulation and returns the time-series data."""
+def control_law_drag_race(state):
+    """Control law for constant max acceleration."""
+    return state['max_accel']
+
+def control_law_trapezoidal(state):
+    """Control law for a symmetric accel/decel profile."""
+    if state['position'] < state['distance_m'] / 2.0:
+        return state['max_accel']
+    else:
+        return -state['max_accel']
+
+def run_simulation(distance_m, max_accel, control_law_fn, dt=0.001):
+    """
+    Runs a generic simulation loop, using a callback to get acceleration.
+    """
     time, position, velocity = 0, 0, 0
-    t_series, pos_series, vel_series = [0], [0], [0]
+    t_series, pos_series, vel_series, accel_series = [0], [0], [0], [0]
+    
     while position < distance_m:
-        position, velocity = step_sim(position, velocity, acceleration_ms2, dt)
+        current_state = {
+            'time': time, 'position': position, 'velocity': velocity,
+            'distance_m': distance_m, 'max_accel': max_accel
+        }
+        current_accel = control_law_fn(current_state)
+        position, velocity = step_sim(position, velocity, current_accel, dt)
+        velocity = max(0, velocity)
         time += dt
+        
         t_series.append(time)
         pos_series.append(position)
         vel_series.append(velocity)
-    return {"time": np.array(t_series), "position": np.array(pos_series), "velocity": np.array(vel_series)}
+        accel_series.append(current_accel)
+        
+    return {"time": np.array(t_series), "position": np.array(pos_series), "velocity": np.array(vel_series), "acceleration": np.array(accel_series)}
 
 # =================================================================================
 # --- OUTPUT FUNCTIONS ---
 # =================================================================================
 
-def print_summary(sim_data):
-    """Prints the formatted results of the simulation."""
-    print("--- Swerve Design Simulation ---")
-    print(f"Robot Mass: {ROBOT_MASS_KG:.2f} kg ({ROBOT_WEIGHT_LBS} lbs)")
-    print(f"Robot Footprint: {TOTAL_ROBOT_WIDTH_IN:.2f}\" x {TOTAL_ROBOT_WIDTH_IN:.2f}\"")
-    print(f"Coefficient of Friction: {COEFFICIENT_OF_FRICTION:.2f}")
-    print("--------------------------------")
-    print("--- Performance Limits ---")
-    print(f"Max Tractive Force (Total): {MAX_TRACTIVE_FORCE_N:.2f} N")
-    print(f"Max Linear Acceleration: {MAX_ACCELERATION_MS2:.2f} m/s^2")
-    print(f"Torque per Motor before Slip: {TORQUE_PER_MOTOR_BEFORE_SLIP_NM:.4f} Nm")
-    print("--------------------------")
-    print("--- Drag Race Simulation Results (Achievable Top Speed) ---")
+def print_summary(sim_data, title):
+    """Prints a summary for a given simulation result."""
+    print(f"--- {title} ---")
+    header = f"{'Path':<12} | {'Peak Velocity (m/s)':<20} | {'Total Time (s)':<15}"
+    print(header)
+    print("-" * len(header))
     for name, data in sim_data.items():
-        final_velocity = data['velocity'][-1]
-        print(f"{name} Path ({PATHS_IN[name]:.2f} in): \t\t{final_velocity:.2f} m/s")
-    print("---------------------------------------------------------")
+        peak_vel = np.max(data['velocity'])
+        total_time = data['time'][-1]
+        print(f"{name:<12} | {peak_vel:<20.2f} | {total_time:<15.3f}")
+    print("--------------------------------------------------")
 
 def plot_field_paths():
     """Generates a top-down plot of the field and simulated paths."""
@@ -116,17 +133,17 @@ def plot_field_paths():
     ax.set_xlabel('Field X-Position (inches)')
     ax.set_ylabel('Field Y-Position (inches)')
     ax.set_title('Top-Down View of Simulated Paths')
-    ax.legend(loc='upper left')
+    ax.legend(loc='upper right')
     ax.grid(True, alpha=0.2)
 
-def plot_kinematics(sim_data):
-    """Generates a 2x3 plot for pos and vel for each path."""
+def plot_kinematics(sim_data, title):
+    """Generates a 3x3 plot for pos, vel, and accel for a given simulation."""
     plt.style.use('dark_background')
     path_colors = {'Side': 'cyan', 'Diagonal': 'lime', 'Curved': 'magenta'}
     max_time = max(data['time'][-1] for data in sim_data.values())
 
-    fig, axes = plt.subplots(2, 3, figsize=(15, 6), sharey='row', sharex=True, tight_layout=True)
-    fig.suptitle('Kinematic Profiles (Drag Race)', fontsize=16)
+    fig, axes = plt.subplots(3, 3, figsize=(15, 8), sharey='row', sharex=True, tight_layout=True)
+    fig.suptitle(title, fontsize=16)
 
     for i, (name, data) in enumerate(sim_data.items()):
         color = path_colors[name]
@@ -134,12 +151,15 @@ def plot_kinematics(sim_data):
         axes[0, i].set_title(f'{name} Path ({PATHS_IN[name]:.1f}")')
         axes[0, i].grid(True, linestyle='--', alpha=0.3)
         axes[1, i].plot(data['time'], data['velocity'], color=color)
-        axes[1, i].set_xlabel('Time (s)')
         axes[1, i].grid(True, linestyle='--', alpha=0.3)
+        axes[2, i].plot(data['time'], data['acceleration'], color=color)
+        axes[2, i].set_xlabel('Time (s)')
+        axes[2, i].grid(True, linestyle='--', alpha=0.3)
 
     axes[0, 0].set_ylabel('Position (m)')
     axes[1, 0].set_ylabel('Velocity (m/s)')
-    axes[1, 0].set_xlim(0, max_time * 1.05)
+    axes[2, 0].set_ylabel('Acceleration (m/s^2)')
+    axes[2, 0].set_xlim(0, max_time * 1.05)
 
 # =================================================================================
 # --- MAIN EXECUTION ---
@@ -148,15 +168,24 @@ def plot_kinematics(sim_data):
 def main():
     """Main function to run the simulation and outputs."""
     try:
-        # Run the simulation for all paths
-        sim_data = {}
+        # --- Run Drag Race Sim ---
+        drag_race_sim_data = {}
         for name, dist_m in PATHS_M.items():
-            sim_data[name] = run_drag_race(dist_m, MAX_ACCELERATION_MS2)
+            drag_race_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_drag_race)
         
-        # Output the results
-        print_summary(sim_data)
+        # --- Run Trapezoidal Sim ---
+        trapezoidal_sim_data = {}
+        for name, dist_m in PATHS_M.items():
+            trapezoidal_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_trapezoidal)
+        
+        # --- Output Results ---
+        print_summary(drag_race_sim_data, "Drag Race Simulation Results")
+        print_summary(trapezoidal_sim_data, "Trapezoidal Profile Simulation Results")
+        
         plot_field_paths()
-        plot_kinematics(sim_data)
+        plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
+        plot_kinematics(trapezoidal_sim_data, title='Kinematic Profiles (Trapezoidal)')
+        
         plt.show()
 
     except KeyboardInterrupt:
