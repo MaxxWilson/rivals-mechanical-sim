@@ -3,9 +3,30 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys
 
+def step_sim(position, velocity, acceleration, dt):
+    """Advances the physics simulation by one time step (dt)."""
+    new_velocity = velocity + acceleration * dt
+    new_position = position + new_velocity * dt
+    return new_position, new_velocity
+
+def run_drag_race(distance_m, acceleration_ms2, dt=0.001):
+    """
+    Runs a simulation for a single path using constant acceleration
+    and returns the full time-series data.
+    """
+    time, position, velocity = 0, 0, 0
+    t_series, pos_series, vel_series = [0], [0], [0]
+    while position < distance_m:
+        position, velocity = step_sim(position, velocity, acceleration_ms2, dt)
+        time += dt
+        t_series.append(time)
+        pos_series.append(position)
+        vel_series.append(velocity)
+    return {"time": np.array(t_series), "position": np.array(pos_series), "velocity": np.array(vel_series)}
+
 def run_kinematic_simulation(params):
     """
-    Performs all physics calculations based on input parameters.
+    Performs all physics calculations and runs the simulation.
     """
     results = params.copy()
     inch_to_m = 0.0254
@@ -15,20 +36,22 @@ def run_kinematic_simulation(params):
     path_side_in = params['FIELD_SIDE_IN'] - total_robot_width_in
 
     results['total_robot_width_in'] = total_robot_width_in
-    results['path_side_in'] = path_side_in
-    results['path_diagonal_in'] = path_side_in * np.sqrt(2)
-    results['path_curve_in'] = (np.pi / 2) * path_side_in
+    results['paths_in'] = {
+        'Side': path_side_in,
+        'Diagonal': path_side_in * np.sqrt(2),
+        'Curved': (np.pi / 2) * path_side_in
+    }
 
     robot_mass_kg = params['ROBOT_WEIGHT_LBS'] * 0.453592
     max_tractive_force_n = robot_mass_kg * params['GRAVITY_MS2'] * params['COEFFICIENT_OF_FRICTION']
     max_acceleration_ms2 = max_tractive_force_n / robot_mass_kg
     results['max_acceleration_ms2'] = max_acceleration_ms2
 
-    # --- Drag Race Velocities ---
-    # v_f = sqrt(2 * a * d)
-    results['v_final_side_ms'] = np.sqrt(2 * max_acceleration_ms2 * results['path_side_in'] * inch_to_m)
-    results['v_final_diagonal_ms'] = np.sqrt(2 * max_acceleration_ms2 * results['path_diagonal_in'] * inch_to_m)
-    results['v_final_curve_ms'] = np.sqrt(2 * max_acceleration_ms2 * results['path_curve_in'] * inch_to_m)
+    # --- Run Numerical Simulation for each path ---
+    sim_data = {}
+    for name, dist_in in results['paths_in'].items():
+        sim_data[name] = run_drag_race(dist_in * inch_to_m, max_acceleration_ms2)
+    results['sim_data'] = sim_data
 
     return results
 
@@ -36,15 +59,19 @@ def print_summary(results):
     """
     Prints the formatted results of the simulation.
     """
-    robot_mass_kg = results['ROBOT_WEIGHT_LBS'] * 0.453592
-    max_tractive_force_n = robot_mass_kg * results['GRAVITY_MS2'] * results['COEFFICIENT_OF_FRICTION']
-    wheel_radius_m = (results['WHEEL_DIAMETER_INCHES'] * 0.0254) / 2
-    torque_per_motor_nm = (max_tractive_force_n * wheel_radius_m) / results['NUM_DRIVE_MOTORS']
+    # CORRECTED LINE: Use the 'results' dict directly, as it contains all params.
+    params = results
+    sim_data = results['sim_data']
+    
+    robot_mass_kg = params['ROBOT_WEIGHT_LBS'] * 0.453592
+    max_tractive_force_n = robot_mass_kg * params['GRAVITY_MS2'] * params['COEFFICIENT_OF_FRICTION']
+    wheel_radius_m = (params['WHEEL_DIAMETER_INCHES'] * 0.0254) / 2
+    torque_per_motor_nm = (max_tractive_force_n * wheel_radius_m) / params['NUM_DRIVE_MOTORS']
 
     print("--- Swerve Design Simulation ---")
-    print(f"Robot Mass: {robot_mass_kg:.2f} kg ({results['ROBOT_WEIGHT_LBS']} lbs)")
+    print(f"Robot Mass: {robot_mass_kg:.2f} kg ({params['ROBOT_WEIGHT_LBS']} lbs)")
     print(f"Robot Footprint: {results['total_robot_width_in']:.2f}\" x {results['total_robot_width_in']:.2f}\"")
-    print(f"Coefficient of Friction: {results['COEFFICIENT_OF_FRICTION']:.2f}")
+    print(f"Coefficient of Friction: {params['COEFFICIENT_OF_FRICTION']:.2f}")
     print("--------------------------------")
     print("--- Performance Limits ---")
     print(f"Max Tractive Force (Total): {max_tractive_force_n:.2f} N")
@@ -52,21 +79,26 @@ def print_summary(results):
     print(f"Torque per Motor before Slip: {torque_per_motor_nm:.4f} Nm")
     print("--------------------------")
     print("--- Drag Race Simulation Results (Achievable Top Speed) ---")
-    print(f"Side Path ({results['path_side_in']:.2f} in): \t\t{results['v_final_side_ms']:.2f} m/s")
-    print(f"Diagonal Path ({results['path_diagonal_in']:.2f} in): {results['v_final_diagonal_ms']:.2f} m/s")
-    print(f"Curved Path ({results['path_curve_in']:.2f} in): \t{results['v_final_curve_ms']:.2f} m/s")
+    for name, data in sim_data.items():
+        path_in = results['paths_in'][name]
+        final_velocity = data['velocity'][-1]
+        print(f"{name} Path ({path_in:.2f} in): \t\t{final_velocity:.2f} m/s")
     print("---------------------------------------------------------")
 
 def plot_field_paths(results):
     """
     Generates a top-down plot of the field and simulated paths.
     """
+    params = results
+    paths_in = results['paths_in']
+    total_robot_width_in = results['total_robot_width_in']
+    
     plt.style.use('dark_background')
     fig, ax = plt.subplots(figsize=(8, 8))
     ax.set_aspect('equal')
 
-    field_side = results['FIELD_SIDE_IN']
-    robot_half_width = results['total_robot_width_in'] / 2
+    field_side = params['FIELD_SIDE_IN']
+    robot_half_width = total_robot_width_in / 2
 
     # Field and Drivable Area
     ax.add_patch(plt.Rectangle((0, 0), field_side, field_side, facecolor='none', edgecolor='white', lw=2))
@@ -78,69 +110,45 @@ def plot_field_paths(results):
     end_pos_diag = (field_side - robot_half_width, field_side - robot_half_width)
 
     # Plotting Paths
-    ax.plot([start_pos[0], end_pos_side[0]], [start_pos[1], end_pos_side[1]], color='cyan', label=f"Side ({results['path_side_in']:.1f}\")", linestyle='--')
-    ax.plot([start_pos[0], end_pos_diag[0]], [start_pos[1], end_pos_diag[1]], color='lime', label=f"Diagonal ({results['path_diagonal_in']:.1f}\")", linestyle='--')
+    ax.plot([start_pos[0], end_pos_side[0]], [start_pos[1], end_pos_side[1]], color='cyan', label=f"Side ({paths_in['Side']:.1f}\")", linestyle='--')
+    ax.plot([start_pos[0], end_pos_diag[0]], [start_pos[1], end_pos_diag[1]], color='lime', label=f"Diagonal ({paths_in['Diagonal']:.1f}\")", linestyle='--')
     
-    arc_radius = results['path_side_in']
+    arc_radius = paths_in['Side']
     arc_center = (robot_half_width, field_side - robot_half_width)
     theta = np.linspace(3 * np.pi / 2, 2 * np.pi, 100)
-    ax.plot(arc_center[0] + arc_radius * np.cos(theta), arc_center[1] + arc_radius * np.sin(theta), color='magenta', label=f"Curved ({results['path_curve_in']:.1f}\")", linestyle='--')
+    ax.plot(arc_center[0] + arc_radius * np.cos(theta), arc_center[1] + arc_radius * np.sin(theta), color='magenta', label=f"Curved ({paths_in['Curved']:.1f}\")", linestyle='--')
 
     # Plot Options
-    ax.set_xlim(0, field_side)
-    ax.set_ylim(0, field_side)
-    ax.set_xlabel('Field X-Position (inches)')
-    ax.set_ylabel('Field Y-Position (inches)')
-    ax.set_title('Top-Down View of Simulated Paths')
-    ax.legend(loc='upper right')
-    ax.grid(True, alpha=0.2)
+    ax.set_xlim(0, field_side); ax.set_ylim(0, field_side)
+    ax.set_xlabel('Field X-Position (inches)'); ax.set_ylabel('Field Y-Position (inches)')
+    ax.set_title('Top-Down View of Simulated Paths'); ax.legend(loc='upper right'); ax.grid(True, alpha=0.2)
 
 def plot_kinematics(results):
     """
     Generates a 2x3 plot for pos and vel for each path on a common time scale.
     """
-    paths = {
-        'Side': {'v_final': results['v_final_side_ms'], 'color': 'cyan'},
-        'Diagonal': {'v_final': results['v_final_diagonal_ms'], 'color': 'lime'},
-        'Curved': {'v_final': results['v_final_curve_ms'], 'color': 'magenta'}
-    }
+    sim_data = results['sim_data']
+    paths_in = results['paths_in']
+    path_colors = {'Side': 'cyan', 'Diagonal': 'lime', 'Curved': 'magenta'}
+    
+    max_time = max(data['time'][-1] for data in sim_data.values())
 
-    accel = results['max_acceleration_ms2']
-
-    # Determine the longest time to set a common x-axis
-    max_time = 0
-    for name, data in paths.items():
-        total_time = data['v_final'] / accel
-        paths[name]['total_time'] = total_time
-        if total_time > max_time:
-            max_time = total_time
-
-    # Create a 2x3 grid of subplots, sharing axes appropriately
     fig, axes = plt.subplots(2, 3, figsize=(15, 6), sharey='row', sharex=True, tight_layout=True)
-    fig.suptitle('Kinematic Profiles for Each Path', fontsize=16)
+    fig.suptitle('Kinematic Profiles (Drag Race)', fontsize=16)
     plt.style.use('dark_background')
 
-    # Loop through each path and its corresponding column index
-    for i, (name, data) in enumerate(paths.items()):
-        t = np.linspace(0, data['total_time'], 200)
-        position = 0.5 * accel * t**2
-        velocity = accel * t
-
-        # --- Plotting on the grid ---
-        # Position Plot (Row 0)
-        axes[0, i].plot(t, position, color=data['color'])
-        axes[0, i].set_title(f'{name} Path')
+    for i, (name, data) in enumerate(sim_data.items()):
+        color = path_colors[name]
+        axes[0, i].plot(data['time'], data['position'], color=color)
+        axes[0, i].set_title(f'{name} Path ({paths_in[name]:.1f}")')
         axes[0, i].grid(True, linestyle='--', alpha=0.3)
-
-        # Velocity Plot (Row 1)
-        axes[1, i].plot(t, velocity, color=data['color'])
+        axes[1, i].plot(data['time'], data['velocity'], color=color)
         axes[1, i].set_xlabel('Time (s)')
         axes[1, i].grid(True, linestyle='--', alpha=0.3)
 
-    # Set common axis properties
     axes[0, 0].set_ylabel('Position (m)')
     axes[1, 0].set_ylabel('Velocity (m/s)')
-    axes[1, 0].set_xlim(0, max_time * 1.05) # Set shared x-axis limit
+    axes[1, 0].set_xlim(0, max_time * 1.05)
 
 def main():
     """
