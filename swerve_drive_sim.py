@@ -23,7 +23,7 @@ GRAVITY_MS2 = 9.81
 INCHES_TO_METERS = 0.0254
 
 # --- Derived Constants (Calculated Once) ---
-ROBOT_MASS_KG = ROBOT_WEIGHT_LBS / 2.2
+ROBOT_MASS_KG = ROBOT_WEIGHT_LBS * 0.453592
 TOTAL_ROBOT_WIDTH_IN = ROBOT_DIM_IN + (2 * BUMPER_THICKNESS_IN)
 WHEEL_RADIUS_M = (WHEEL_DIAMETER_INCHES * INCHES_TO_METERS) / 2
 
@@ -86,14 +86,47 @@ def print_summary(sim_data):
         print(f"{name} Path ({PATHS_IN[name]:.2f} in): \t\t{final_velocity:.2f} m/s")
     print("---------------------------------------------------------")
 
+def plot_field_paths():
+    """Generates a top-down plot of the field and simulated paths."""
+    plt.style.use('dark_background')
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_aspect('equal')
+
+    robot_half_width = TOTAL_ROBOT_WIDTH_IN / 2
+
+    # Field
+    ax.add_patch(plt.Rectangle((0, 0), FIELD_SIDE_IN, FIELD_SIDE_IN, facecolor='none', edgecolor='white', lw=2))
+
+    # Path Definitions
+    start_pos = (robot_half_width, robot_half_width)
+    end_pos_side = (FIELD_SIDE_IN - robot_half_width, robot_half_width)
+    end_pos_diag = (FIELD_SIDE_IN - robot_half_width, FIELD_SIDE_IN - robot_half_width)
+
+    # Plotting Paths
+    ax.plot([start_pos[0], end_pos_side[0]], [start_pos[1], end_pos_side[1]], color='cyan', label=f"Side ({PATHS_IN['Side']:.1f}\")", linestyle='--')
+    ax.plot([start_pos[0], end_pos_diag[0]], [start_pos[1], end_pos_diag[1]], color='lime', label=f"Diagonal ({PATHS_IN['Diagonal']:.1f}\")", linestyle='--')
+    
+    arc_center = (robot_half_width, FIELD_SIDE_IN - robot_half_width)
+    theta = np.linspace(3 * np.pi / 2, 2 * np.pi, 100)
+    ax.plot(arc_center[0] + ARC_RADIUS_IN * np.cos(theta), arc_center[1] + ARC_RADIUS_IN * np.sin(theta), color='magenta', label=f"Curved ({PATHS_IN['Curved']:.1f}\")", linestyle='--')
+
+    # Plot Options
+    ax.set_xlim(0, FIELD_SIDE_IN)
+    ax.set_ylim(0, FIELD_SIDE_IN)
+    ax.set_xlabel('Field X-Position (inches)')
+    ax.set_ylabel('Field Y-Position (inches)')
+    ax.set_title('Top-Down View of Simulated Paths')
+    ax.legend(loc='upper left')
+    ax.grid(True, alpha=0.2)
+
 def plot_kinematics(sim_data):
     """Generates a 2x3 plot for pos and vel for each path."""
+    plt.style.use('dark_background')
     path_colors = {'Side': 'cyan', 'Diagonal': 'lime', 'Curved': 'magenta'}
     max_time = max(data['time'][-1] for data in sim_data.values())
 
     fig, axes = plt.subplots(2, 3, figsize=(15, 6), sharey='row', sharex=True, tight_layout=True)
     fig.suptitle('Kinematic Profiles (Drag Race)', fontsize=16)
-    plt.style.use('dark_background')
 
     for i, (name, data) in enumerate(sim_data.items()):
         color = path_colors[name]
@@ -122,6 +155,7 @@ def main():
         
         # Output the results
         print_summary(sim_data)
+        plot_field_paths()
         plot_kinematics(sim_data)
         plt.show()
 
