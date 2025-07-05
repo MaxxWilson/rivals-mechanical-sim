@@ -18,6 +18,10 @@ NUM_DRIVE_MOTORS = 8
 WHEEL_DIAMETER_INCHES = 2.5
 TARGET_V_MAX_MS = 3.0
 
+# --- Power System Parameters ---
+BATTERY_VOLTAGE = 14.8 # Volts. (4S LiPo. Use 22.2 for 6S)
+SYSTEM_EFFICIENCY = 0.85 # Estimated efficiency from battery to wheel (85%)
+
 # --- Environment Constants ---
 COEFFICIENT_OF_FRICTION = 1.2
 GRAVITY_MS2 = 9.81
@@ -42,6 +46,12 @@ PATHS_M = {name: dist_in * INCHES_TO_METERS for name, dist_in in PATHS_IN.items(
 MAX_TRACTIVE_FORCE_N = ROBOT_MASS_KG * GRAVITY_MS2 * COEFFICIENT_OF_FRICTION
 MAX_ACCELERATION_MS2 = MAX_TRACTIVE_FORCE_N / ROBOT_MASS_KG
 TORQUE_PER_MOTOR_BEFORE_SLIP_NM = (MAX_TRACTIVE_FORCE_N * WHEEL_RADIUS_M) / NUM_DRIVE_MOTORS
+
+# Power System Requirements
+P_MECH_PEAK_W = MAX_TRACTIVE_FORCE_N * TARGET_V_MAX_MS
+P_ELEC_PEAK_W = P_MECH_PEAK_W / SYSTEM_EFFICIENCY
+I_TOTAL_REQUIRED_A = P_ELEC_PEAK_W / BATTERY_VOLTAGE
+I_PER_MOTOR_REQUIRED_A = I_TOTAL_REQUIRED_A / NUM_DRIVE_MOTORS
 
 # =================================================================================
 # --- SIMULATION ENGINE & CONTROL LAWS ---
@@ -103,7 +113,20 @@ def run_simulation(distance_m, max_accel, control_law_fn, target_v_max=None, dt=
 # --- OUTPUT FUNCTIONS ---
 # =================================================================================
 
-def print_summary(sim_data, title):
+def print_setup_summary():
+    """Prints a summary of the static design parameters and requirements."""
+    print("--- Swerve Design Simulation Setup ---")
+    print(f"Robot Mass: {ROBOT_MASS_KG:.2f} kg ({ROBOT_WEIGHT_LBS} lbs)")
+    print(f"Target Top Speed: {TARGET_V_MAX_MS:.1f} m/s")
+    print(f"Max Linear Acceleration: {MAX_ACCELERATION_MS2:.2f} m/s^2")
+    print(f"Torque per Motor to Slip: {TORQUE_PER_MOTOR_BEFORE_SLIP_NM:.3f} Nm")
+    print("\n--- Power System Requirements ---")
+    print(f"Required Peak Electrical Power: {P_ELEC_PEAK_W:.1f} W (@ {SYSTEM_EFFICIENCY*100:.0f}% eff)")
+    print(f"Derived Current per Motor (@{BATTERY_VOLTAGE}V): {I_PER_MOTOR_REQUIRED_A:.2f} A")
+    print("-----------------------------------")
+
+
+def print_sim_results(sim_data, title):
     """Prints a summary for a given simulation result."""
     print(f"--- {title} ---")
     header = f"{'Path':<12} | {'Peak Velocity (m/s)':<20} | {'Total Time (s)':<15}"
@@ -185,6 +208,9 @@ def plot_kinematics(sim_data, title):
 def main():
     """Main function to run the simulation and outputs."""
     try:
+        # Print the static parameters first
+        print_setup_summary()
+
         # --- Run Drag Race Sim ---
         drag_race_sim_data = {}
         for name, dist_m in PATHS_M.items():
@@ -201,9 +227,9 @@ def main():
             trap_limited_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_trapezoidal_limited, target_v_max=TARGET_V_MAX_MS)
 
         # --- Output Results ---
-        print_summary(drag_race_sim_data, "Drag Race Simulation Results")
-        print_summary(trap_unlimited_sim_data, "Unlimited Trapezoidal Profile Results")
-        print_summary(trap_limited_sim_data, "V-Max Limited Trapezoidal Profile Results")
+        print_sim_results(drag_race_sim_data, "Drag Race Simulation Results")
+        print_sim_results(trap_unlimited_sim_data, "Unlimited Trapezoidal Profile Results")
+        print_sim_results(trap_limited_sim_data, "V-Max Limited Trapezoidal Profile Results")
         
         # --- Plotting ---
         plot_field_paths()
