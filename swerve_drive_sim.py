@@ -6,6 +6,7 @@ import sys
 # =================================================================================
 # --- GLOBAL CONSTANTS AND ONE-TIME CALCULATIONS ---
 # =================================================================================
+ENABLE_PLOTTING=False
 
 # --- Base Dimensions (in Inches) ---
 FIELD_SIDE_IN = 144.0
@@ -19,7 +20,8 @@ WHEEL_DIAMETER_INCHES = 2.5
 TARGET_V_MAX_MS = 3.0
 
 # --- Power System Parameters ---
-BATTERY_VOLTAGE = 14.8 # Volts. (4S LiPo. Use 22.2 for 6S)
+BATTERY_VOLTAGE_4S = 14.8
+BATTERY_VOLTAGE_6S = 22.2
 SYSTEM_EFFICIENCY = 0.85 # Estimated efficiency from battery to wheel (85%)
 
 # --- Environment Constants ---
@@ -50,8 +52,10 @@ TORQUE_PER_MOTOR_BEFORE_SLIP_NM = (MAX_TRACTIVE_FORCE_N * WHEEL_RADIUS_M) / NUM_
 # Power System Requirements
 P_MECH_PEAK_W = MAX_TRACTIVE_FORCE_N * TARGET_V_MAX_MS
 P_ELEC_PEAK_W = P_MECH_PEAK_W / SYSTEM_EFFICIENCY
-I_TOTAL_REQUIRED_A = P_ELEC_PEAK_W / BATTERY_VOLTAGE
-I_PER_MOTOR_REQUIRED_A = I_TOTAL_REQUIRED_A / NUM_DRIVE_MOTORS
+I_TOTAL_REQUIRED_A_4S = P_ELEC_PEAK_W / BATTERY_VOLTAGE_4S
+I_TOTAL_REQUIRED_A_6S = P_ELEC_PEAK_W / BATTERY_VOLTAGE_6S
+I_PER_MOTOR_REQUIRED_A_4S = I_TOTAL_REQUIRED_A_4S / NUM_DRIVE_MOTORS
+I_PER_MOTOR_REQUIRED_A_6S = I_TOTAL_REQUIRED_A_6S / NUM_DRIVE_MOTORS
 
 # =================================================================================
 # --- SIMULATION ENGINE & CONTROL LAWS ---
@@ -113,17 +117,30 @@ def run_simulation(distance_m, max_accel, control_law_fn, target_v_max=None, dt=
 # --- OUTPUT FUNCTIONS ---
 # =================================================================================
 
-def print_setup_summary():
+def print_static_design_params():
     """Prints a summary of the static design parameters and requirements."""
     print("--- Swerve Design Simulation Setup ---")
     print(f"Robot Mass: {ROBOT_MASS_KG:.2f} kg ({ROBOT_WEIGHT_LBS} lbs)")
     print(f"Target Top Speed: {TARGET_V_MAX_MS:.1f} m/s")
     print(f"Max Linear Acceleration: {MAX_ACCELERATION_MS2:.2f} m/s^2")
+    print(f"Acceleration Time From Rest: {TARGET_V_MAX_MS/MAX_ACCELERATION_MS2:.3f} s")
     print(f"Torque per Motor to Slip: {TORQUE_PER_MOTOR_BEFORE_SLIP_NM:.3f} Nm")
-    print("\n--- Power System Requirements ---")
+    print("-----------------------------------\n")
+
+def print_power_system_requirements():
+    print("--- Power System Requirements ---")
+    print(f"Required Peak Mechanical Power: {P_MECH_PEAK_W:.1f} W (@ {TARGET_V_MAX_MS:.2f}m/s Top Speed, {MAX_TRACTIVE_FORCE_N:.2f}Nm Pushing Force)")
     print(f"Required Peak Electrical Power: {P_ELEC_PEAK_W:.1f} W (@ {SYSTEM_EFFICIENCY*100:.0f}% eff)")
-    print(f"Derived Current per Motor (@{BATTERY_VOLTAGE}V): {I_PER_MOTOR_REQUIRED_A:.2f} A")
-    print("-----------------------------------")
+    print(f"Required Electrical Power per Motor: {P_ELEC_PEAK_W/ NUM_DRIVE_MOTORS:.1f} W (@ {SYSTEM_EFFICIENCY*100:.0f}% eff)")
+    print("")
+
+    print(f"Total Drive Current at 4S (@{BATTERY_VOLTAGE_4S}V): {I_TOTAL_REQUIRED_A_4S:.2f} A")
+    print(f"Current per Motor at 4S (@{BATTERY_VOLTAGE_4S}V): {I_PER_MOTOR_REQUIRED_A_4S:.2f} A")
+    
+    print("")
+    print(f"Total Drive Current at 6S (@{BATTERY_VOLTAGE_6S}V): {I_TOTAL_REQUIRED_A_6S:.2f} A")
+    print(f"Current per Motor at 6S (@{BATTERY_VOLTAGE_6S}V): {I_PER_MOTOR_REQUIRED_A_6S:.2f} A")
+    print("-----------------------------------\n")
 
 
 def print_sim_results(sim_data, title):
@@ -136,7 +153,7 @@ def print_sim_results(sim_data, title):
         peak_vel = np.max(data['velocity'])
         total_time = data['time'][-1]
         print(f"{name:<12} | {peak_vel:<20.2f} | {total_time:<15.3f}")
-    print("--------------------------------------------------")
+    print("--------------------------------------------------\n")
 
 
 def plot_field_paths():
@@ -209,7 +226,8 @@ def main():
     """Main function to run the simulation and outputs."""
     try:
         # Print the static parameters first
-        print_setup_summary()
+        print_static_design_params()
+        print_power_system_requirements()
 
         # --- Run Drag Race Sim ---
         drag_race_sim_data = {}
@@ -237,7 +255,8 @@ def main():
         plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Unlimited Trapezoid)')
         plot_kinematics(trap_limited_sim_data, title='Kinematic Profiles (V-Max Limited Trapezoid @ 3.0 m/s)')
         
-        plt.show()
+        if ENABLE_PLOTTING:
+            plt.show()
 
     except KeyboardInterrupt:
         print("\nSimulation aborted by user. Exiting.")
