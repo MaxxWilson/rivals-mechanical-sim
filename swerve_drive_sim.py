@@ -16,13 +16,13 @@ BUMPER_THICKNESS_IN = 1.0
 # --- Robot Constants ---
 ROBOT_WEIGHT_LBS = 20.0
 NUM_DRIVE_MOTORS = 8
-WHEEL_DIAMETER_INCHES = 2.5
+WHEEL_DIAMETER_INCHES = 2.75
 TARGET_V_MAX_MS = 3.0
 
 # --- Power System Parameters ---
 BATTERY_VOLTAGE_4S = 14.8
 BATTERY_VOLTAGE_6S = 22.2
-SYSTEM_EFFICIENCY = 0.85 # Estimated efficiency from battery to wheel (85%)
+SYSTEM_EFFICIENCY = 0.75 # Estimated efficiency from battery to wheel (85%)
 
 # --- Environment Constants ---
 COEFFICIENT_OF_FRICTION = 1.2
@@ -129,7 +129,7 @@ def print_static_design_params():
 
 def print_power_system_requirements():
     print("--- Power System Requirements ---")
-    print(f"Required Peak Mechanical Power: {P_MECH_PEAK_W:.1f} W (@ {TARGET_V_MAX_MS:.2f}m/s Top Speed, {MAX_TRACTIVE_FORCE_N:.2f}Nm Pushing Force)")
+    print(f"Required Peak Mechanical Power: {P_MECH_PEAK_W:.1f} W (@ {TARGET_V_MAX_MS:.2f}m/s Top Speed, {MAX_TRACTIVE_FORCE_N:.2f}N Pushing Force)")
     print(f"Required Peak Electrical Power: {P_ELEC_PEAK_W:.1f} W (@ {SYSTEM_EFFICIENCY*100:.0f}% eff)")
     print(f"Required Electrical Power per Motor: {P_ELEC_PEAK_W/ NUM_DRIVE_MOTORS:.1f} W (@ {SYSTEM_EFFICIENCY*100:.0f}% eff)")
     print("")
