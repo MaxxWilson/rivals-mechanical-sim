@@ -6,14 +6,14 @@ from config import COLUMN_MAP, MOTOR_KV
 
 def estimate_motor_inertia(step_responses):
     """
-    Estimates motor inertia using a Theil-Sen Regressor, which is highly
-    robust to outliers in sparse data.
+    Estimates motor inertia using a Theil-Sen Regressor on the pooled data
+    from the clean step response windows.
     """
-    print("-> Running: Estimate Motor Inertia (Theil-Sen Method)")
+    print("-> Running: Estimate Motor Inertia (Theil-Sen on Clipped Data)")
     
     kt = 60 / (2 * np.pi * MOTOR_KV)
     
-    # 1. Pool data
+    # 1. Pool data ONLY from the clean step_responses
     all_data_list = []
     for step_df in step_responses:
         all_data_list.append(pd.DataFrame({
@@ -28,10 +28,9 @@ def estimate_motor_inertia(step_responses):
     y = combined_df['torque'].values
 
     if len(X) < 2:
-        print("   Not enough data points for Theil-Sen fit.")
         return None, None
 
-    # 2. Fit Theil-Sen Regressor
+    # 2. Fit Theil-Sen Regressor on this clean, pooled data
     theil = TheilSenRegressor(random_state=42)
     theil.fit(X, y)
     
@@ -40,7 +39,7 @@ def estimate_motor_inertia(step_responses):
     
     # 3. Identify outliers based on the robust Theil-Sen fit
     residuals = y - theil.predict(X)
-    is_outlier = np.abs(residuals) > 2 * np.std(residuals)
+    is_outlier = np.abs(residuals) > 2.5 * np.std(residuals) # Using a slightly higher threshold
     
     plot_data = {
         'inliers': combined_df[~is_outlier],
@@ -49,6 +48,6 @@ def estimate_motor_inertia(step_responses):
         'intercept': intercept_estimate
     }
     
-    print(f"   Theil-Sen found {np.sum(~is_outlier)} inliers and {np.sum(is_outlier)} outlier(s).")
+    print(f"   Theil-Sen using {np.sum(~is_outlier)} inliers and found {np.sum(is_outlier)} outlier(s).")
     
     return inertia_estimate, plot_data

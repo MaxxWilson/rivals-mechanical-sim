@@ -4,14 +4,15 @@ import numpy as np
 
 def create_regression_plot(plot_data):
     """
-    Visualizes the Theil-Sen regression, highlighting inliers and outliers.
+    Visualizes the Theil-Sen regression on the clean analysis window,
+    highlighting inliers and outliers.
     """
     print("-> Generating Theil-Sen Regression Plot")
     if not plot_data:
         return
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 7))
-    fig.suptitle("Theil-Sen Torque vs. Acceleration Fit", fontsize=16)
+    fig.suptitle("Theil-Sen Torque vs. Acceleration Fit (Analysis Window)", fontsize=16)
 
     # Plot the inlier data points
     ax.scatter(plot_data['inliers']['acceleration'], plot_data['inliers']['torque'], 
@@ -22,7 +23,10 @@ def create_regression_plot(plot_data):
                edgecolor='red', facecolor='none', s=100, label='Rejected Outlier(s)')
     
     # Plot the line of best fit from the Theil-Sen estimator
-    x_fit_range = np.array(ax.get_xlim())
+    # Use the actual data range for a tight fit line
+    x_min = plot_data['inliers']['acceleration'].min()
+    x_max = plot_data['inliers']['acceleration'].max()
+    x_fit_range = np.linspace(x_min, x_max, 2)
     y_fit = plot_data['slope'] * x_fit_range + plot_data['intercept']
     
     fit_label = f"Theil-Sen Fit (Inertia={plot_data['slope']:.8f} kg*m²)"

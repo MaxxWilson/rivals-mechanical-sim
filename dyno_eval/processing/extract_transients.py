@@ -19,5 +19,4 @@ def extract_transients(df, velocity_threshold):
         t_zero = df.loc[start, time_col]
         transient_df[time_col] -= t_zero
         transients.append(transient_df)
-    print(f"   Found {len(transients)} transients.")
     return transients

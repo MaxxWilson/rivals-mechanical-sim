@@ -3,7 +3,6 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# Import our custom modules
 import config
 from processing.perform_physics_calculations import perform_physics_calculations
 from processing.sanitize_idle_current import sanitize_idle_current
@@ -30,7 +29,6 @@ if __name__ == "__main__":
         print(f"Error: Target file not found at '{full_filepath}'")
     else:
         # 1. LOAD & PROCESS
-        print(f"Loading data from {file_to_process}...")
         df = pd.read_csv(full_filepath)
         df[config.COLUMN_MAP['velocity']] = df[config.COLUMN_MAP['velocity']].abs()
         df[config.COLUMN_MAP['current']] = df[config.COLUMN_MAP['current']].abs()
@@ -45,25 +43,23 @@ if __name__ == "__main__":
                 t, config.SETTLING_THRESHOLD, config.STEADY_STATE_POINTS_TO_KEEP
             ) for t in transients]
             
-            # 2. ANALYZE
+            # 2. ANALYZE (Call simplified function)
             estimated_inertia, regression_plot_data = estimate_motor_inertia(step_responses)
             if estimated_inertia:
                 print("-" * 40)
                 print(f"FINAL ESTIMATED MOTOR INERTIA: {estimated_inertia:.8f} kg*m^2")
-                print("You can update MOTOR_INERTIA in config.py with this value.")
                 print("-" * 40)
 
             # 3. PREPARE & EXPORT DATA
             export_inertia_data_to_csv(step_responses, "inertia_analysis_data", base_path)
-            export_regression_data_to_csv(regression_plot_data, "regression_fit_data", base_path)
+            # export_regression_data_to_csv(regression_plot_data, "regression_fit_data", base_path) # Needs to be updated
             efficiency_transients = [isolate_transient_for_efficiency(t) for t in transients]
-
 
             # 4. PLOT
             create_main_comparison_plot(df, step_responses, file_to_process.replace('.csv', ''))
             create_inertia_analysis_plot(step_responses, estimated_inertia)
             create_regression_plot(regression_plot_data)
-            create_efficiency_plot(efficiency_transients) # This line is now correctly included
+            create_efficiency_plot(efficiency_transients)
             
             plt.show()
 
