@@ -12,10 +12,9 @@ COLUMN_MAP = {
 
 # --- Physics & Hardware Constants ---
 MOTOR_KV = 1450
-GEAR_RATIO = 5.0
-# Update this with the value you calculated: 0.00000655
-MOTOR_INERTIA = 0.00000655 
-FLYWHEEL_INERTIA = 0.0015
+GEAR_RATIO = 14.0
+MOTOR_INERTIA = 0.00000573
+FLYWHEEL_INERTIA = 0.000
 
 # --- Analysis Parameters ---
 SETTLING_THRESHOLD = 0.95
