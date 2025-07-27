@@ -2,7 +2,6 @@
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import TheilSenRegressor
-from config import COLUMN_MAP, MOTOR_KV
 
 def estimate_motor_inertia(step_responses):
     """
@@ -11,20 +10,22 @@ def estimate_motor_inertia(step_responses):
     """
     print("-> Running: Estimate Motor Inertia (Theil-Sen on Clipped Data)")
     
-    kt = 60 / (2 * np.pi * MOTOR_KV)
-    
     # 1. Pool data ONLY from the clean step_responses
     all_data_list = []
     for step_df in step_responses:
-        # THE FIX IS HERE: Use the correct column name 'motor_acceleration_rad_s2'
+        # THE FIX IS HERE: Use the pre-calculated columns directly. No more recalculating torque.
         all_data_list.append(pd.DataFrame({
             'acceleration': step_df['motor_acceleration_rad_s2'],
-            'torque': step_df[COLUMN_MAP['current']] * kt
+            'torque': step_df['motor_torque_ideal'] 
         }))
     
     if not all_data_list: return None, None
     combined_df = pd.concat(all_data_list).dropna()
     
+    # Remove points with zero or near-zero acceleration, as they offer no info
+    # and can cause issues with the regression's stability.
+    combined_df = combined_df[combined_df['acceleration'].abs() > 1e-1]
+
     X = combined_df['acceleration'].values.reshape(-1, 1)
     y = combined_df['torque'].values
 

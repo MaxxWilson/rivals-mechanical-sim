@@ -33,7 +33,6 @@ if __name__ == "__main__":
         df[config.COLUMN_MAP['velocity']] = df[config.COLUMN_MAP['velocity']].abs()
         df[config.COLUMN_MAP['current']] = df[config.COLUMN_MAP['current']].abs()
         
-        # Correct Order of Operations
         df = sanitize_idle_current(df)
         df = perform_physics_calculations(df)
         
@@ -56,7 +55,9 @@ if __name__ == "__main__":
             # 3. PREPARE & EXPORT DATA
             export_inertia_data_to_csv(step_responses, "inertia_analysis_data", base_path)
             export_regression_data_to_csv(regression_plot_data, "regression_fit_data", base_path)
-            efficiency_transients = [isolate_step_response(t, config.SETTLING_THRESHOLD, config.STEADY_STATE_POINTS_TO_KEEP + 3) for t in transients]
+            
+            # THE FIX IS HERE: Use the correct function to prepare efficiency data
+            efficiency_transients = [isolate_transient_for_efficiency(t) for t in transients]
 
             # 4. PLOT
             create_main_comparison_plot(df, step_responses, file_to_process.replace('.csv', ''))
