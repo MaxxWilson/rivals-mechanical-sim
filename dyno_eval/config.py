@@ -13,8 +13,8 @@ COLUMN_MAP = {
 # --- Physics & Hardware Constants ---
 MOTOR_KV = 1450
 GEAR_RATIO = 5.0
-MOTOR_INERTIA = 0.00000573 # Final estimated value
-FLYWHEEL_INERTIA = MOTOR_INERTIA
+MOTOR_INERTIA = 0.00000313 # Final estimated value
+FLYWHEEL_INERTIA = 0.0
 
 # --- Analysis Parameters ---
 # We're reverting to this more flexible method for defining the analysis window.

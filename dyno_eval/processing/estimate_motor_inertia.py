@@ -16,8 +16,9 @@ def estimate_motor_inertia(step_responses):
     # 1. Pool data ONLY from the clean step_responses
     all_data_list = []
     for step_df in step_responses:
+        # THE FIX IS HERE: Use the correct column name 'motor_acceleration_rad_s2'
         all_data_list.append(pd.DataFrame({
-            'acceleration': step_df['acceleration_rad_s2'],
+            'acceleration': step_df['motor_acceleration_rad_s2'],
             'torque': step_df[COLUMN_MAP['current']] * kt
         }))
     
@@ -39,7 +40,7 @@ def estimate_motor_inertia(step_responses):
     
     # 3. Identify outliers based on the robust Theil-Sen fit
     residuals = y - theil.predict(X)
-    is_outlier = np.abs(residuals) > 2.5 * np.std(residuals) # Using a slightly higher threshold
+    is_outlier = np.abs(residuals) > 2.5 * np.std(residuals)
     
     plot_data = {
         'inliers': combined_df[~is_outlier],
