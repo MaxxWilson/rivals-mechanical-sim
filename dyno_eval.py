@@ -107,8 +107,64 @@ def isolate_step_response(transient_df, settling_threshold=0.95, steady_state_po
 
     return step_response_df
 
-# --- Plotting Functions ---
+def estimate_motor_inertia(step_responses):
+    """
+    Estimates the motor's inertia using the step response data from a no-flywheel test.
+    This version is updated to resolve the SettingWithCopyWarning.
 
+    Args:
+        step_responses: A list of DataFrames, each containing an isolated step response.
+
+    Returns:
+        The estimated motor inertia in kg*m^2.
+    """
+    print("-> Running: Estimate Motor Inertia")
+
+    # Calculate motor's torque constant (Kt) from KV
+    kt = 60 / (2 * np.pi * MOTOR_KV)
+    
+    all_inertia_estimates = []
+
+    for i, step_df in enumerate(step_responses):
+        # Create a temporary copy to avoid modifying the original data used for plotting
+        df = step_df.copy()
+
+        # --- 1. Unit Conversion ---
+        df['velocity_rad_s'] = df[COLUMN_MAP['velocity']] * (2 * np.pi)
+
+        # --- 2. Calculate Motor Acceleration & Torque ---
+        time_diff = df[COLUMN_MAP['time']].diff()
+        vel_diff_rad_s = df['velocity_rad_s'].diff()
+        df['acceleration_rad_s2'] = (vel_diff_rad_s / time_diff).rolling(window=3).mean().fillna(0)
+        df['motor_torque'] = df[COLUMN_MAP['current']] * kt
+
+        # --- 3. Estimate Inertia (Robust Method) ---
+        peak_accel = df['acceleration_rad_s2'].max()
+        clean_data_filter = (
+            (df['acceleration_rad_s2'] > 0.25 * peak_accel) & 
+            (df['acceleration_rad_s2'] < 0.95 * peak_accel)
+        )
+        clean_data = df[clean_data_filter]
+
+        if not clean_data.empty:
+            # Use .assign() to create a new DataFrame with the calculated column.
+            # This safely avoids the SettingWithCopyWarning.
+            data_with_inertia = clean_data.assign(
+                calculated_inertia = lambda x: x['motor_torque'] / x['acceleration_rad_s2']
+            )
+            
+            avg_inertia_for_transient = data_with_inertia['calculated_inertia'].mean()
+            all_inertia_estimates.append(avg_inertia_for_transient)
+            print(f"   Transient {i+1}: Estimated Inertia = {avg_inertia_for_transient:.8f} kg*m^2")
+
+    if not all_inertia_estimates:
+        print("   Could not calculate inertia, no valid transients found.")
+        return None
+        
+    final_estimate = np.mean(all_inertia_estimates)
+    return final_estimate
+
+# --- Plotting Functions ---
 def create_main_comparison_plot(df, step_responses, title):
     """
     MAIN PLOT: Full timeseries in Col 1, isolated STEP RESPONSES in subsequent columns.
@@ -183,13 +239,12 @@ def create_full_transient_comparison_plot(transients):
 
 if __name__ == "__main__":
     # --- Analysis Configuration ---
-    # Percentage of peak velocity to consider "settled" for clipping the step response.
     SETTLING_THRESHOLD = 0.95
-    # Number of data points to keep after the settling point.
     STEADY_STATE_POINTS_TO_KEEP = 3
     
     # --- File Configuration ---
     data_directory = os.path.join(os.getcwd(), 'ultra_mk2_data')
+    # Set the file to the no-flywheel test for inertia calculation
     file_to_process = 'no_flywheel.csv'
     full_filepath = os.path.join(data_directory, file_to_process)
 
@@ -203,15 +258,16 @@ if __name__ == "__main__":
         motor_df[COLUMN_MAP['current']] = motor_df[COLUMN_MAP['current']].abs()
 
         # 2. ANALYSIS PIPELINE
+        # NOTE: Physics calculations here are for the *plots*, which may assume a full system.
+        # The new inertia estimation function performs its own specific calculations.
         motor_df = sanitize_idle_current(motor_df)
-        motor_df = perform_physics_calculations(motor_df)
+        motor_df = perform_physics_calculations(motor_df) # This is for the plots
         transient_list = extract_transients(motor_df)
         
         # 3. PLOT & PROCESS
         if not transient_list:
             print("No transients found to plot.")
         else:
-            # Use the new threshold and steady-state points config
             step_responses = [isolate_step_response(
                 t, 
                 settling_threshold=SETTLING_THRESHOLD, 
@@ -220,7 +276,15 @@ if __name__ == "__main__":
             
             print(f"-> Extracted {len(step_responses)} step-response periods.")
 
-            # Generate the two figures
+            # --- 4. ESTIMATE MOTOR INERTIA ---
+            estimated_inertia = estimate_motor_inertia(step_responses)
+            if estimated_inertia:
+                print("-" * 40)
+                print(f"FINAL ESTIMATED MOTOR INERTIA: {estimated_inertia:.8f} kg*m^2")
+                print("-" * 40)
+                # You can now update the MOTOR_INERTIA constant with this value for future runs
+
+            # --- 5. GENERATE PLOTS ---
             create_main_comparison_plot(motor_df, step_responses, file_to_process.replace('.csv', ''))
             create_full_transient_comparison_plot(transient_list)
             
