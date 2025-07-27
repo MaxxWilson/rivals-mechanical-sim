@@ -77,11 +77,34 @@ def extract_transients(df, velocity_threshold=10):
     print(f"   Found {len(transients)} transients.")
     return transients
 
-def isolate_step_response(transient_df):
-    # This logic is correct and remains unchanged.
+def isolate_step_response(transient_df, settling_threshold=0.95, steady_state_points=3):
+    """
+    Takes a single transient and isolates the initial step response.
+    It clips the data shortly after the velocity first reaches a settling_threshold
+    (e.g., 95%) of its peak value.
+    """
     vel_col = COLUMN_MAP["velocity"]
-    peak_velocity_idx = transient_df[vel_col].idxmax()
-    step_response_df = transient_df.loc[:peak_velocity_idx].copy()
+
+    # Find the absolute peak velocity in this transient
+    peak_velocity = transient_df[vel_col].max()
+
+    # Find the first index where velocity crosses the settling threshold
+    # In case the peak is never reached, fall back to the old method.
+    if (transient_df[vel_col] >= peak_velocity * settling_threshold).any():
+        settling_point_idx = (transient_df[vel_col] >= peak_velocity * settling_threshold).idxmax()
+    else:
+        settling_point_idx = transient_df[vel_col].idxmax()
+
+    # Determine the end point of the slice, adding the desired steady-state points
+    end_slice_idx = settling_point_idx + steady_state_points
+
+    # Ensure the slice doesn't go out of bounds
+    last_valid_idx = transient_df.index[-1]
+    final_idx = min(end_slice_idx, last_valid_idx)
+
+    # Return a copy of the data from the start up to the calculated final index.
+    step_response_df = transient_df.loc[:final_idx].copy()
+
     return step_response_df
 
 # --- Plotting Functions ---
@@ -159,6 +182,13 @@ def create_full_transient_comparison_plot(transients):
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
 
 if __name__ == "__main__":
+    # --- Analysis Configuration ---
+    # Percentage of peak velocity to consider "settled" for clipping the step response.
+    SETTLING_THRESHOLD = 0.95
+    # Number of data points to keep after the settling point.
+    STEADY_STATE_POINTS_TO_KEEP = 3
+    
+    # --- File Configuration ---
     data_directory = os.path.join(os.getcwd(), 'ultra_mk2_data')
     file_to_process = 'no_flywheel.csv'
     full_filepath = os.path.join(data_directory, file_to_process)
@@ -169,7 +199,6 @@ if __name__ == "__main__":
         # 1. LOAD & NORMALIZE DATA
         print(f"Loading data from {file_to_process}...")
         motor_df = pd.read_csv(full_filepath)
-        # Use absolute values for velocity and current to handle sign issues
         motor_df[COLUMN_MAP['velocity']] = motor_df[COLUMN_MAP['velocity']].abs()
         motor_df[COLUMN_MAP['current']] = motor_df[COLUMN_MAP['current']].abs()
 
@@ -182,12 +211,18 @@ if __name__ == "__main__":
         if not transient_list:
             print("No transients found to plot.")
         else:
-            step_responses = [isolate_step_response(t) for t in transient_list]
+            # Use the new threshold and steady-state points config
+            step_responses = [isolate_step_response(
+                t, 
+                settling_threshold=SETTLING_THRESHOLD, 
+                steady_state_points=STEADY_STATE_POINTS_TO_KEEP
+            ) for t in transient_list]
+            
             print(f"-> Extracted {len(step_responses)} step-response periods.")
 
             # Generate the two figures
             create_main_comparison_plot(motor_df, step_responses, file_to_process.replace('.csv', ''))
-            create_full_transient_comparison_plot(transient_list) # This line is updated
+            create_full_transient_comparison_plot(transient_list)
             
             plt.show()
 
