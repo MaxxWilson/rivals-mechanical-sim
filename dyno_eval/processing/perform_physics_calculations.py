@@ -17,7 +17,7 @@ def perform_physics_calculations(df):
     # 1. Ideal Torque from motor current
     df['motor_torque_ideal'] = df[COLUMN_MAP['current']] * kt
     
-    # 2. Motor Acceleration using exact dt (no averaging, no filtering)
+    # 2. Motor Acceleration using exact dt
     vel_rad_s = df[COLUMN_MAP['velocity']] * (2 * np.pi)
     time_diff = df[COLUMN_MAP['time']].diff() # Use exact dt for each row
     vel_diff = vel_rad_s.diff()
@@ -33,6 +33,7 @@ def perform_physics_calculations(df):
     
     # 5. Pseudo-Efficiency (ratio of the two motor torques)
     with np.errstate(divide='ignore', invalid='ignore'):
+        df['calculated_inertia'] = df['motor_torque_ideal'] / df['motor_acceleration_rad_s2']
         df['pseudo_efficiency'] = (df['motor_torque_actual'] / df['motor_torque_ideal']) * 100
     
     df.replace([np.inf, -np.inf], np.nan, inplace=True)

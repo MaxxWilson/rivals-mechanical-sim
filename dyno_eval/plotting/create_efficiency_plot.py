@@ -17,7 +17,7 @@ def create_efficiency_plot(transients):
     if num_cols == 1:
         axes = [axes]
     
-    plot_style = {'marker': 'o', 'markersize': 2, 'linestyle': 'None', 'color': 'lightblue'}
+    plot_style = {'marker': 'o', 'markersize': 2, 'linestyle': '-', 'color': 'lightblue'}
 
     for i, transient_df in enumerate(transients):
         ax = axes[i]

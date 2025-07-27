@@ -35,7 +35,7 @@ if __name__ == "__main__":
         
         # Correct Order of Operations
         df = sanitize_idle_current(df)
-        df = perform_physics_calculations(df) # This creates the 'calculated_inertia' column
+        df = perform_physics_calculations(df)
         
         transients = extract_transients(df, config.VELOCITY_THRESHOLD)
         
@@ -56,7 +56,7 @@ if __name__ == "__main__":
             # 3. PREPARE & EXPORT DATA
             export_inertia_data_to_csv(step_responses, "inertia_analysis_data", base_path)
             export_regression_data_to_csv(regression_plot_data, "regression_fit_data", base_path)
-            efficiency_transients = [isolate_transient_for_efficiency(t) for t in transients]
+            efficiency_transients = [isolate_step_response(t, config.SETTLING_THRESHOLD, config.STEADY_STATE_POINTS_TO_KEEP + 3) for t in transients]
 
             # 4. PLOT
             create_main_comparison_plot(df, step_responses, file_to_process.replace('.csv', ''))
