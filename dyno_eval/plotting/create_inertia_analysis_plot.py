@@ -4,7 +4,8 @@ from config import COLUMN_MAP
 
 def create_inertia_analysis_plot(step_responses, final_inertia_est):
     """
-    Creates a dedicated figure for inertia analysis, using new motor-centric columns.
+    Creates a dedicated figure for inertia analysis, plotting both raw
+    and filtered acceleration for comparison.
     """
     print("-> Generating Inertia Analysis Plot")
     if not step_responses: return
@@ -24,7 +25,11 @@ def create_inertia_analysis_plot(step_responses, final_inertia_est):
 
         ax_vel.set_title(f"Transient {i+1}")
         ax_vel.plot(step_df[COLUMN_MAP['time']], step_df[COLUMN_MAP['velocity']], color='cyan', **line_plot_style)
-        ax_accel.plot(step_df[COLUMN_MAP['time']], step_df['motor_acceleration_rad_s2'], color='orange', **line_plot_style)
+        
+        # Plot both raw and filtered acceleration
+        ax_accel.plot(step_df[COLUMN_MAP['time']], step_df['motor_acceleration_raw_rad_s2'], color='orange', alpha=0.3, label='Raw Accel.')
+        ax_accel.plot(step_df[COLUMN_MAP['time']], step_df['motor_acceleration_rad_s2'], color='orange', **line_plot_style, label='Filtered Accel.')
+        
         ax_torque.plot(step_df[COLUMN_MAP['time']], step_df['motor_torque_ideal'], color='lime', **line_plot_style)
         ax_inertia.plot(step_df[COLUMN_MAP['time']], step_df['calculated_inertia'], **scatter_plot_style)
         ax_inertia.set_xlabel("Time (s)")
@@ -34,6 +39,11 @@ def create_inertia_analysis_plot(step_responses, final_inertia_est):
     axes[1, 0].set_ylabel("Motor Acceleration\n(rad/s²)")
     axes[2, 0].set_ylabel("Ideal Motor Torque\n(Nm)")
     axes[3, 0].set_ylabel("Est. Inertia\n(kg*m^2)")
+    
+    # Add legend to the first acceleration plot
+    if num_cols > 0:
+        ax = axes[1, 0] if num_cols > 1 else axes[1]
+        ax.legend()
 
     if final_inertia_est:
         y_lim_inertia = (0, final_inertia_est * 5)
