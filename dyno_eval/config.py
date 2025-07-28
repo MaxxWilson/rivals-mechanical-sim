@@ -12,14 +12,15 @@ COLUMN_MAP = {
 
 # --- Physics & Hardware Constants ---
 MOTOR_KV = 1450
-GEAR_RATIO = 5.0
+GEAR_RATIO = 14.0
 MOTOR_INERTIA = 0.00000371 # Final estimated value
-FLYWHEEL_INERTIA = 0.0
+FLYWHEEL_INERTIA = (2551.676 + 0.235)/1000.0/1000.0
 
 # --- Analysis Parameters ---
-SETTLING_THRESHOLD = 0.95 # Clip the analysis when velocity reaches 95% of its peak
+SETTLING_THRESHOLD = 0.98 # Clip the analysis when velocity reaches 95% of its peak
 STEADY_STATE_POINTS_TO_KEEP = 0 # Keep a few points of the plateau for context
 VELOCITY_THRESHOLD = 10 # rev/s
+TRANSIENT_MIN_DURATION_S = 0.03
 
 # --- Filtering Parameters ---
 # Parameters for the Savitzky-Golay filter used for calculating acceleration.

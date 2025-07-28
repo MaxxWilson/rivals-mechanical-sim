@@ -20,8 +20,8 @@ if __name__ == "__main__":
     
     # --- Select File to Analyze ---
     # Switch this to any of the flywheel test files.
-    file_to_process = '1_torque_ramp_90A_limit.csv'
-    # file_to_process = '0.1_torque_ramp_90A_limit.csv'
+    # file_to_process = 'no_torque_ramp_50A_limit.csv'
+    file_to_process = '0.1_torque_ramp_90A_limit.csv'
     # ------------------------------
 
     full_filepath = os.path.join(data_directory, file_to_process)
