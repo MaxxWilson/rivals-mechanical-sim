@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class Motor:
-    def __init__(self, name, v_applied, r_phase, kt, kv_rpm, i_no_load=0.2, gear_ratio=1.0):
+    def __init__(self, name, v_applied, r_phase, kv_rpm, i_no_load=0.2, gear_ratio=1.0):
         """
         Primary constructor using fundamental physics parameters.
         Includes optional external gearing.
@@ -11,7 +11,7 @@ class Motor:
         self.name = name
         self.v_applied = v_applied
         self.r_phase = r_phase
-        self.kt = kt
+        self.kt = 60/(2*np.pi)/kv_rpm
         self.kv_rpm = kv_rpm
         self.i_no_load = i_no_load
         self.gear_ratio = gear_ratio
@@ -31,9 +31,8 @@ class Motor:
         Alternative constructor using motor-level performance specs.
         """
         r_phase = v_applied / stall_current
-        kt = stall_torque / stall_current
         kv_rpm = no_load_speed_rpm / v_applied
-        return cls(name, v_applied, r_phase, kt, kv_rpm, i_no_load, gear_ratio)
+        return cls(name, v_applied, r_phase, kv_rpm, i_no_load, gear_ratio)
 
     def get_performance_curves(self, num_points=500):
         """
