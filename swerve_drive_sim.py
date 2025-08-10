@@ -6,7 +6,7 @@ import sys
 # =================================================================================
 # --- GLOBAL CONSTANTS AND ONE-TIME CALCULATIONS ---
 # =================================================================================
-ENABLE_PLOTTING=False
+ENABLE_PLOTTING=True
 
 # --- Base Dimensions (in Inches) ---
 FIELD_SIDE_IN = 144.0
@@ -14,10 +14,21 @@ ROBOT_DIM_IN = 12.0
 BUMPER_THICKNESS_IN = 1.0
 
 # --- Robot Constants ---
-ROBOT_WEIGHT_LBS = 20.0
+ROBOT_WEIGHT_LBS = 22.5
 NUM_DRIVE_MOTORS = 8
 WHEEL_DIAMETER_INCHES = 2.75
 TARGET_V_MAX_MS = 3.0
+
+# --- Differential Swerve Kinematics ---
+# Based on: v_wheel ∝ (v_motor1 - v_motor2), v_steer ∝ (v_motor1 + v_motor2)
+# Ratios: 13/44 driving stage 1, 30/14 driving stage 2, 13/44 steering.
+# The "/ 2" factor comes from the differential action.
+DRIVE_KINEMATIC_CONSTANT_K = (13/44) * (30/14) / 2
+STEER_KINEMATIC_CONSTANT_J = (13/44) / 2
+# For pure driving, v_m1 = -v_m2. v_wheel = K * (v_m1 - (-v_m1)) = 2*K*v_m1.
+# The ratio of motor speed to wheel speed is therefore 1 / (2*K).
+TOTAL_DRIVE_RATIO = 1 / (2 * DRIVE_KINEMATIC_CONSTANT_K)
+
 
 # --- Power System Parameters ---
 BATTERY_VOLTAGE_4S = 14.8
@@ -25,7 +36,7 @@ BATTERY_VOLTAGE_6S = 22.2
 SYSTEM_EFFICIENCY = 0.75 # Estimated efficiency from battery to wheel (85%)
 
 # --- Environment Constants ---
-COEFFICIENT_OF_FRICTION = 1.2
+COEFFICIENT_OF_FRICTION = 1.25
 GRAVITY_MS2 = 9.81
 INCHES_TO_METERS = 0.0254
 
@@ -47,7 +58,7 @@ PATHS_M = {name: dist_in * INCHES_TO_METERS for name, dist_in in PATHS_IN.items(
 # Performance Limits
 MAX_TRACTIVE_FORCE_N = ROBOT_MASS_KG * GRAVITY_MS2 * COEFFICIENT_OF_FRICTION
 MAX_ACCELERATION_MS2 = MAX_TRACTIVE_FORCE_N / ROBOT_MASS_KG
-TORQUE_PER_MOTOR_BEFORE_SLIP_NM = (MAX_TRACTIVE_FORCE_N * WHEEL_RADIUS_M) / NUM_DRIVE_MOTORS
+TORQUE_PER_MOTOR_BEFORE_SLIP_NM = (MAX_TRACTIVE_FORCE_N * WHEEL_RADIUS_M) / (NUM_DRIVE_MOTORS * TOTAL_DRIVE_RATIO)
 
 # Power System Requirements
 P_MECH_PEAK_W = MAX_TRACTIVE_FORCE_N * TARGET_V_MAX_MS
@@ -91,26 +102,39 @@ def control_law_trapezoidal_limited(state):
     else:
         return state['max_accel']
 
-def run_simulation(distance_m, max_accel, control_law_fn, target_v_max=None, dt=0.001):
+def run_simulation(distance_m, max_accel, control_law_fn, target_v_max=None, dt=0.0001, max_sim_time_s = 15.0):
     """Runs a generic simulation loop, using a callback to get acceleration."""
     time, position, velocity = 0, 0, 0
     t_series, pos_series, vel_series, accel_series = [0], [0], [0], [0]
-    
+
     while position < distance_m:
+        if time >= max_sim_time_s:
+            print(f"\n--- SIM WARNING: Max time of {max_sim_time_s:.1f}s exceeded. ---")
+            break
+
+        # Store velocity before the physics step to detect a stall
+        last_velocity = velocity
+
         current_state = {
             'time': time, 'position': position, 'velocity': velocity,
             'distance_m': distance_m, 'max_accel': max_accel, 'target_v_max': target_v_max
         }
+
         current_accel = control_law_fn(current_state)
         position, velocity = step_sim(position, velocity, current_accel, dt)
         velocity = max(0, velocity)
         time += dt
         
+        # If the controller caused a stall (v=0 after moving), just end the run.
+        # This accepts the small undershoot for the sake of a clean plot.
+        if velocity == 0 and last_velocity > 0:
+            break
+        
         t_series.append(time)
         pos_series.append(position)
         vel_series.append(velocity)
         accel_series.append(current_accel)
-        
+
     return {"time": np.array(t_series), "position": np.array(pos_series), "velocity": np.array(vel_series), "acceleration": np.array(accel_series)}
 
 # =================================================================================
@@ -121,11 +145,25 @@ def print_static_design_params():
     """Prints a summary of the static design parameters and requirements."""
     print("--- Swerve Design Simulation Setup ---")
     print(f"Robot Mass: {ROBOT_MASS_KG:.2f} kg ({ROBOT_WEIGHT_LBS} lbs)")
+    print(f"Max Tractive Force: {MAX_TRACTIVE_FORCE_N:.2f} N")
     print(f"Target Top Speed: {TARGET_V_MAX_MS:.1f} m/s")
     print(f"Max Linear Acceleration: {MAX_ACCELERATION_MS2:.2f} m/s^2")
     print(f"Acceleration Time From Rest: {TARGET_V_MAX_MS/MAX_ACCELERATION_MS2:.3f} s")
     print(f"Torque per Motor to Slip: {TORQUE_PER_MOTOR_BEFORE_SLIP_NM:.3f} Nm")
     print("-----------------------------------\n")
+
+def print_kinematic_requirements():
+    """Prints drivetrain-specific speed requirements."""
+    target_wheel_speed_rad_s = TARGET_V_MAX_MS / WHEEL_RADIUS_M
+    target_wheel_speed_rpm = target_wheel_speed_rad_s * (60 / (2 * np.pi))
+    required_motor_rpm_at_target_v = target_wheel_speed_rpm * TOTAL_DRIVE_RATIO
+
+    print("--- Kinematic & Drivetrain Requirements ---")
+    print(f"Total Drive Ratio (Motor:Wheel): {TOTAL_DRIVE_RATIO:.2f}:1")
+    print(f"Target Wheel Speed @ {TARGET_V_MAX_MS:.1f} m/s: {target_wheel_speed_rpm:.1f} RPM")
+    print(f"Required Motor Speed for V_Max (Pure Drive): {required_motor_rpm_at_target_v:.1f} RPM")
+    print("-------------------------------------------\n")
+
 
 def print_power_system_requirements():
     print("--- Power System Requirements ---")
@@ -136,7 +174,7 @@ def print_power_system_requirements():
 
     print(f"Total Drive Current at 4S (@{BATTERY_VOLTAGE_4S}V): {I_TOTAL_REQUIRED_A_4S:.2f} A")
     print(f"Current per Motor at 4S (@{BATTERY_VOLTAGE_4S}V): {I_PER_MOTOR_REQUIRED_A_4S:.2f} A")
-    
+
     print("")
     print(f"Total Drive Current at 6S (@{BATTERY_VOLTAGE_6S}V): {I_TOTAL_REQUIRED_A_6S:.2f} A")
     print(f"Current per Motor at 6S (@{BATTERY_VOLTAGE_6S}V): {I_PER_MOTOR_REQUIRED_A_6S:.2f} A")
@@ -175,7 +213,7 @@ def plot_field_paths():
     # Plotting Paths
     ax.plot([start_pos[0], end_pos_side[0]], [start_pos[1], end_pos_side[1]], color='cyan', label=f"Side ({PATHS_IN['Side']:.1f}\")", linestyle='--')
     ax.plot([start_pos[0], end_pos_diag[0]], [start_pos[1], end_pos_diag[1]], color='lime', label=f"Diagonal ({PATHS_IN['Diagonal']:.1f}\")", linestyle='--')
-    
+
     arc_center = (robot_half_width, FIELD_SIDE_IN - robot_half_width)
     theta = np.linspace(3 * np.pi / 2, 2 * np.pi, 100)
     ax.plot(arc_center[0] + ARC_RADIUS_IN * np.cos(theta), arc_center[1] + ARC_RADIUS_IN * np.sin(theta), color='magenta', label=f"Curved ({PATHS_IN['Curved']:.1f}\")", linestyle='--')
@@ -186,7 +224,7 @@ def plot_field_paths():
     ax.set_xlabel('Field X-Position (inches)')
     ax.set_ylabel('Field Y-Position (inches)')
     ax.set_title('Top-Down View of Simulated Paths')
-    ax.legend(loc='upper right')
+    ax.legend(loc='upper left')
     ax.grid(True, alpha=0.2)
 
 def plot_kinematics(sim_data, title):
@@ -227,18 +265,20 @@ def main():
     try:
         # Print the static parameters first
         print_static_design_params()
+        print_kinematic_requirements()
         print_power_system_requirements()
+
 
         # --- Run Drag Race Sim ---
         drag_race_sim_data = {}
         for name, dist_m in PATHS_M.items():
             drag_race_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_drag_race)
-        
+
         # --- Run Unlimited Trapezoidal Sim ---
         trap_unlimited_sim_data = {}
         for name, dist_m in PATHS_M.items():
             trap_unlimited_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_trapezoidal_unlimited)
-        
+
         # --- Run V-Max Limited Trapezoidal Sim ---
         trap_limited_sim_data = {}
         for name, dist_m in PATHS_M.items():
@@ -248,13 +288,13 @@ def main():
         print_sim_results(drag_race_sim_data, "Drag Race Simulation Results")
         print_sim_results(trap_unlimited_sim_data, "Unlimited Trapezoidal Profile Results")
         print_sim_results(trap_limited_sim_data, "V-Max Limited Trapezoidal Profile Results")
-        
+
         # --- Plotting ---
         plot_field_paths()
         plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
         plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Unlimited Trapezoid)')
         plot_kinematics(trap_limited_sim_data, title='Kinematic Profiles (V-Max Limited Trapezoid @ 3.0 m/s)')
-        
+
         if ENABLE_PLOTTING:
             plt.show()
 
