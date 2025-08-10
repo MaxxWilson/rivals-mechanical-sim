@@ -34,6 +34,15 @@ class Motor:
         kv_rpm = no_load_speed_rpm / v_applied
         return cls(name, v_applied, r_phase, kv_rpm, i_no_load, gear_ratio)
 
+    def get_raw_motor_peak_power(self):
+        """
+        Calculates the theoretical peak mechanical power of the raw, ungeared motor.
+        Peak power occurs at 1/2 no-load speed and 1/2 stall torque.
+        """
+        motor_no_load_speed_rads = self.motor_no_load_speed_rpm * (2 * np.pi / 60)
+        peak_power_watts = (self.motor_stall_torque / 2) * (motor_no_load_speed_rads / 2)
+        return peak_power_watts
+
     def get_performance_curves(self, num_points=500):
         """
         Generates the data for all performance curves based on OUTPUT values.
@@ -50,6 +59,23 @@ class Motor:
         
         efficiency = np.divide(power_out_watts, power_in_watts, out=np.zeros_like(power_out_watts), where=power_in_watts!=0)
         return locals() 
+
+    def get_operating_point(self, required_output_torque):
+        """
+        Calculates the speed and current for a given required output torque.
+        Assumes torque is at the final output of the gearbox.
+        """
+        if required_output_torque > self.output_stall_torque:
+            return None  # Cannot produce this torque
+
+        # Based on linear torque-speed curve: T = T_s * (1 - w / w_nl)
+        speed_rpm = self.output_no_load_speed_rpm * (1 - (required_output_torque / self.output_stall_torque))
+
+        # Calculate current based on motor-level torque (pre-gearing)
+        motor_torque_nm = required_output_torque / self.gear_ratio
+        current_a = (motor_torque_nm / self.kt) + self.i_no_load
+
+        return {'output_speed_rpm': speed_rpm, 'current_a': current_a}
 
     def print_specs(self):
         """
