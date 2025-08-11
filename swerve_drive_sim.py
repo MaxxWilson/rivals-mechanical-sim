@@ -191,7 +191,7 @@ def print_sim_results(sim_data, title):
         peak_vel = np.max(data['velocity'])
         total_time = data['time'][-1]
         print(f"{name:<12} | {peak_vel:<20.2f} | {total_time:<15.3f}")
-    print("--------------------------------------------------\n")
+    print("-----------------------------------------------------\n")
 
 
 def plot_field_paths():
@@ -286,13 +286,13 @@ def main():
 
         # --- Output Results ---
         print_sim_results(drag_race_sim_data, "Drag Race Simulation Results")
-        print_sim_results(trap_unlimited_sim_data, "Unlimited Trapezoidal Profile Results")
+        print_sim_results(trap_unlimited_sim_data, "Minimum Time Profile Results")
         print_sim_results(trap_limited_sim_data, "V-Max Limited Trapezoidal Profile Results")
 
         # --- Plotting ---
         plot_field_paths()
         plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
-        plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Unlimited Trapezoid)')
+        plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Minimum Time)')
         plot_kinematics(trap_limited_sim_data, title='Kinematic Profiles (V-Max Limited Trapezoid @ 3.0 m/s)')
 
         if ENABLE_PLOTTING:
