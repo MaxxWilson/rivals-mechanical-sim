@@ -12,6 +12,7 @@ ENABLE_PLOTTING=True
 FIELD_SIDE_IN = 144.0
 ROBOT_DIM_IN = 12.0
 BUMPER_THICKNESS_IN = 1.0
+TARGET_COAST_RATIO = 0.6
 
 # --- Robot Constants ---
 ROBOT_WEIGHT_LBS = 22.5
@@ -141,19 +142,93 @@ def run_simulation(distance_m, max_accel, control_law_fn, target_v_max=None, dt=
 # --- OUTPUT FUNCTIONS ---
 # =================================================================================
 
+def calculate_vmax_for_coast_ratio(distance_m, max_accel, coast_ratio):
+    """Calculates the target V_max to achieve a desired coast time to total time ratio."""
+    # A coast ratio of 1 is a divide-by-zero, and negative is nonsense.
+    if not (0 <= coast_ratio < 1):
+        return float('nan')
+    
+    # Derivation: v_max^2 = ad * (1 - R_coast) / (1 + R_coast)
+    ad_product = max_accel * distance_m
+    scaling_factor = (1 - coast_ratio) / (1 + coast_ratio)
+    v_max_squared = ad_product * scaling_factor
+    return np.sqrt(v_max_squared)
+
+def print_design_speed_recommendation():
+    """Calculates and prints top speed recommendations based on a target coast-time ratio."""
+    # --- Design Choice ---
+    # Define what percentage of a path's travel time should be spent at max speed.
+    # This ensures the chosen V_max is a meaningful part of the trajectory, not just an
+    # instantaneous peak. A value of 0.25 means we want to be cruising for 25% of the time.
+    
+    print("--- Top Speed Design Recommendation (Profile Shape Method) ---")
+    print(f"Based on a target 'Coast Time / Total Time' ratio of: {TARGET_COAST_RATIO:.0%}")
+    
+    header = f"{'Path':<12} | {'Recommended V_max (m/s)':<25}"
+    print(header)
+    print("-" * (len(header) + 2))
+    
+    for name, dist_m in PATHS_M.items():
+        recommended_vmax = calculate_vmax_for_coast_ratio(dist_m, MAX_ACCELERATION_MS2, TARGET_COAST_RATIO)
+        print(f"{name:<12} | {recommended_vmax:<25.2f}")
+    print("------------------------------------------\n")
+
 def get_trapezoidal_time(distance_m, max_accel, v_max):
     """Calculates the minimum time to traverse a distance with a trapezoidal profile, solved analytically."""
     # Velocity reached if the profile is a triangle (accel to midpoint, then decel)
     v_peak_for_distance = np.sqrt(distance_m * max_accel)
 
-    # If the requested v_max is higher than what's achievable in a triangular profile for this distance,
-    # the profile is limited by acceleration, not velocity. Time is determined by the triangular shape.
     if v_max >= v_peak_for_distance:
         time = 2 * np.sqrt(distance_m / max_accel)
-    # Otherwise, the robot hits v_max, coasts, and then decelerates.
     else:
         time = (distance_m / v_max) + (v_max / max_accel)
     return time
+
+def plot_optimal_speed_tradeoff(paths_m_dict, max_accel, max_force_n, efficiency, voltage):
+    """
+    Generates a dual-axis plot to visualize the trade-off between trajectory time and
+    peak current draw for multiple paths.
+    """
+    plt.style.use('dark_background')
+    fig, ax1 = plt.subplots(figsize=(12, 8))
+    path_colors = {'Side': 'cyan', 'Diagonal': 'lime', 'Curved': 'magenta'}
+
+    # --- Time Calculations & Plotting (Left Axis) ---
+    v_max_sweep = np.linspace(0.1, 8.0, 400)
+    ax1.set_xlabel('Max Velocity Limit (m/s)', fontsize=12)
+    ax1.set_ylabel('Total Trajectory Time (s)', fontsize=12)
+    ax1.grid(True, linestyle='--', alpha=0.2)
+
+    for name, distance_m in paths_m_dict.items():
+        # Calculate time and the ideal 'knee' velocity for the current path
+        times = [get_trapezoidal_time(distance_m, max_accel, v) for v in v_max_sweep]
+        v_peak_ideal = np.sqrt(distance_m * max_accel)
+        color = path_colors.get(name, 'white') # Use path color, default to white
+
+        # Plot the time curve and its V_peak line
+        ax1.plot(v_max_sweep, times, color=color, lw=2.5, label=f'Time ({name})')
+        ax1.axvline(x=v_peak_ideal, color=color, linestyle=':', lw=2, label=f'V_peak ({name} = {v_peak_ideal:.2f} m/s)')
+
+    ax1.set_ylim(bottom=0)
+
+    # --- Current Calculation & Plotting (Right Axis) ---
+    # Current is independent of path distance, so it's only one curve
+    currents = [(max_force_n * v) / (efficiency * voltage) for v in v_max_sweep]
+
+    ax2 = ax1.twinx() # Create the second y-axis
+    color2 = 'yellow' # A distinct color for the current
+    ax2.set_ylabel(f'Peak Current Draw @ {voltage}V (A)', color=color2, fontsize=12)
+    ax2.plot(v_max_sweep, currents, color=color2, lw=3, linestyle='--', label='Peak Current Draw')
+    ax2.tick_params(axis='y', labelcolor=color2)
+    ax2.set_ylim(bottom=0)
+
+    # --- Final Touches ---
+    fig.suptitle('Time vs. Current Trade-Off (All Paths)', fontsize=16)
+    # Consolidate legends from both axes into one box
+    lines, labels = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines + lines2, labels + labels2, loc='upper center')
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
 
 def plot_vmax_sweep(max_accel):
     """Plots trajectory time vs. max velocity for the different paths."""
@@ -299,45 +374,49 @@ def plot_kinematics(sim_data, title):
 def main():
     """Main function to run the simulation and outputs."""
     try:
-        # Print the static parameters first
+        # --- Print static design targets and recommendations ---
         print_static_design_params()
         print_kinematic_requirements()
         print_power_system_requirements()
+        print_design_speed_recommendation() # New recommendation output
 
 
-        # --- Run Drag Race Sim ---
+        # --- Simulation runs for detailed analysis ---
+        # These can be commented out if you only need the up-front numbers.
         drag_race_sim_data = {}
         for name, dist_m in PATHS_M.items():
             drag_race_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_drag_race)
 
-        # --- Run Unlimited Trapezoidal Sim ---
         trap_unlimited_sim_data = {}
         for name, dist_m in PATHS_M.items():
             trap_unlimited_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_trapezoidal_unlimited)
-
-        # --- Run V-Max Limited Trapezoidal Sim ---
+        
         trap_limited_sim_data = {}
         for name, dist_m in PATHS_M.items():
             trap_limited_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_trapezoidal_limited, target_v_max=TARGET_V_MAX_MS)
 
-        # --- Output Results ---
+
+        # --- Output simulation results ---
         print_sim_results(drag_race_sim_data, "Drag Race Simulation Results")
         print_sim_results(trap_unlimited_sim_data, "Minimum Time Profile Results")
-        print_sim_results(trap_limited_sim_data, "V-Max Limited Trapezoidal Profile Results")
+        print_sim_results(trap_limited_sim_data, f"V-Max Limited Trapezoidal Profile Results (@ {TARGET_V_MAX_MS} m/s)")
+
 
         # --- Plotting ---
-        plot_field_paths()
-        plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
-        plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Minimum Time)')
-        plot_kinematics(trap_limited_sim_data, title=f'Kinematic Profiles (V-Max Limited Trapezoid @ {TARGET_V_MAX_MS} m/s)')
-        plot_vmax_sweep(MAX_ACCELERATION_MS2) # New plot call
-
         if ENABLE_PLOTTING:
+            plot_field_paths()
+            # Generate the trade-off plot for all paths
+            plot_optimal_speed_tradeoff(
+                paths_m_dict=PATHS_M,
+                max_accel=MAX_ACCELERATION_MS2,
+                max_force_n=MAX_TRACTIVE_FORCE_N,
+                efficiency=SYSTEM_EFFICIENCY,
+                voltage=BATTERY_VOLTAGE_4S
+            )
             plt.show()
 
     except KeyboardInterrupt:
         print("\nSimulation aborted by user. Exiting.")
         sys.exit(0)
-
 if __name__ == "__main__":
     main()
