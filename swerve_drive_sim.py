@@ -141,6 +141,42 @@ def run_simulation(distance_m, max_accel, control_law_fn, target_v_max=None, dt=
 # --- OUTPUT FUNCTIONS ---
 # =================================================================================
 
+def get_trapezoidal_time(distance_m, max_accel, v_max):
+    """Calculates the minimum time to traverse a distance with a trapezoidal profile, solved analytically."""
+    # Velocity reached if the profile is a triangle (accel to midpoint, then decel)
+    v_peak_for_distance = np.sqrt(distance_m * max_accel)
+
+    # If the requested v_max is higher than what's achievable in a triangular profile for this distance,
+    # the profile is limited by acceleration, not velocity. Time is determined by the triangular shape.
+    if v_max >= v_peak_for_distance:
+        time = 2 * np.sqrt(distance_m / max_accel)
+    # Otherwise, the robot hits v_max, coasts, and then decelerates.
+    else:
+        time = (distance_m / v_max) + (v_max / max_accel)
+    return time
+
+def plot_vmax_sweep(max_accel):
+    """Plots trajectory time vs. max velocity for the different paths."""
+    plt.style.use('dark_background')
+    fig, ax = plt.subplots(figsize=(10, 6))
+    path_colors = {'Side': 'cyan', 'Diagonal': 'lime', 'Curved': 'magenta'}
+
+    # Define the sweep range for max velocity
+    v_max_sweep = np.linspace(1.0, 8.0, 200) # from 0.1 to 6.0 m/s
+
+    for name, dist_m in PATHS_M.items():
+        # Calculate time for each v_max in the sweep using the analytical solution
+        times = [get_trapezoidal_time(dist_m, max_accel, v) for v in v_max_sweep]
+        ax.plot(v_max_sweep, times, label=f"{name} Path ({dist_m:.2f} m)", color=path_colors[name], lw=2)
+
+    ax.set_xlabel('Max Velocity Limit (m/s)')
+    ax.set_ylabel('Total Trajectory Time (s)')
+    ax.set_title('Path Times vs. Max Velocity Limit')
+    ax.legend()
+    ax.grid(True, linestyle='--', alpha=0.3)
+    ax.set_xlim([1.0, 8.0])
+    ax.set_ylim(bottom=0)
+
 def print_static_design_params():
     """Prints a summary of the static design parameters and requirements."""
     print("--- Swerve Design Simulation Setup ---")
@@ -293,7 +329,8 @@ def main():
         plot_field_paths()
         plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
         plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Minimum Time)')
-        plot_kinematics(trap_limited_sim_data, title='Kinematic Profiles (V-Max Limited Trapezoid @ 3.0 m/s)')
+        plot_kinematics(trap_limited_sim_data, title=f'Kinematic Profiles (V-Max Limited Trapezoid @ {TARGET_V_MAX_MS} m/s)')
+        plot_vmax_sweep(MAX_ACCELERATION_MS2) # New plot call
 
         if ENABLE_PLOTTING:
             plt.show()
