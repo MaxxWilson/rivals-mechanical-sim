@@ -187,11 +187,17 @@ def get_trapezoidal_time(distance_m, max_accel, v_max):
 def plot_optimal_speed_tradeoff(paths_m_dict, max_accel, max_force_n, efficiency, voltage):
     """
     Generates a dual-axis plot to visualize the trade-off between trajectory time and
-    peak current draw for multiple paths.
+    peak mechanical power for multiple paths.
     """
     plt.style.use('dark_background')
     fig, ax1 = plt.subplots(figsize=(12, 8))
     path_colors = {'Side': 'cyan', 'Diagonal': 'lime', 'Curved': 'magenta'}
+
+    # --- Calculate Y-Limit for Time Axis ---
+    # Find the longest path to determine the max time for the y-axis limit
+    longest_path_dist = max(paths_m_dict.values())
+    # Calculate the time at v=1 m/s for this path to set a reasonable plot ceiling
+    y_limit_time = get_trapezoidal_time(longest_path_dist, max_accel, 1.0)
 
     # --- Time Calculations & Plotting (Left Axis) ---
     v_max_sweep = np.linspace(0.1, 8.0, 400)
@@ -209,25 +215,41 @@ def plot_optimal_speed_tradeoff(paths_m_dict, max_accel, max_force_n, efficiency
         ax1.plot(v_max_sweep, times, color=color, lw=2.5, label=f'Time ({name})')
         ax1.axvline(x=v_peak_ideal, color=color, linestyle=':', lw=2, label=f'V_peak ({name} = {v_peak_ideal:.2f} m/s)')
 
-    ax1.set_ylim(bottom=0)
+    ax1.set_ylim(bottom=0, top=y_limit_time) # Set the new Y-limit
 
-    # --- Current Calculation & Plotting (Right Axis) ---
-    # Current is independent of path distance, so it's only one curve
-    currents = [(max_force_n * v) / (efficiency * voltage) for v in v_max_sweep]
+    # --- Power Calculation & Plotting (Right Axis) ---
+    powers = [(max_force_n * v) for v in v_max_sweep]
 
-    ax2 = ax1.twinx() # Create the second y-axis
-    color2 = 'yellow' # A distinct color for the current
-    ax2.set_ylabel(f'Peak Current Draw @ {voltage}V (A)', color=color2, fontsize=12)
-    ax2.plot(v_max_sweep, currents, color=color2, lw=3, linestyle='--', label='Peak Current Draw')
+    ax2 = ax1.twinx()
+    color2 = 'yellow'
+    ax2.set_ylabel('Peak Mechanical Power (W)', color=color2, fontsize=12)
+    ax2.plot(v_max_sweep, powers, color=color2, lw=3, linestyle='--', label='Peak Mechanical Power')
     ax2.tick_params(axis='y', labelcolor=color2)
     ax2.set_ylim(bottom=0)
 
     # --- Final Touches ---
-    fig.suptitle('Time vs. Current Trade-Off (All Paths)', fontsize=16)
-    # Consolidate legends from both axes into one box
-    lines, labels = ax1.get_legend_handles_labels()
+    fig.suptitle('Time vs. Mechanical Power Trade-Off (All Paths)', fontsize=16)
+    
+    # --- Reorder Legend for Clarity ---
+    lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines + lines2, labels + labels2, loc='upper center')
+
+    # Separate ax1 labels into 'Time' and 'V_peak' groups
+    time_lines, time_labels = [], []
+    vpeak_lines, vpeak_labels = [], []
+    for line, label in zip(lines1, labels1):
+        if label.startswith('Time'):
+            time_lines.append(line)
+            time_labels.append(label)
+        elif label.startswith('V_peak'):
+            vpeak_lines.append(line)
+            vpeak_labels.append(label)
+            
+    # Combine in the desired order: Times, then V_peaks, then Power
+    ordered_lines = time_lines + vpeak_lines + lines2
+    ordered_labels = time_labels + vpeak_labels + labels2
+    
+    ax1.legend(ordered_lines, ordered_labels, loc='upper center')
     fig.tight_layout(rect=[0, 0, 1, 0.96])
 
 def plot_vmax_sweep(max_accel):
