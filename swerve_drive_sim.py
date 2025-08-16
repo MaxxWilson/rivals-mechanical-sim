@@ -228,7 +228,7 @@ def plot_optimal_speed_tradeoff(paths_m_dict, max_accel, max_force_n, efficiency
     ax2.set_ylim(bottom=0)
 
     # --- Final Touches ---
-    fig.suptitle('Time vs. Mechanical Power Trade-Off (All Paths)', fontsize=16)
+    fig.suptitle('Travel Time and Max Mechanical Power vs Velocity Limit (All Paths)', fontsize=16)
     
     # --- Reorder Legend for Clarity ---
     lines1, labels1 = ax1.get_legend_handles_labels()
@@ -360,6 +360,65 @@ def plot_field_paths():
     ax.legend(loc='upper left')
     ax.grid(True, alpha=0.2)
 
+def plot_trajectory_comparison(distance_m, max_accel):
+    """
+    Plots a comparison of different velocity profiles (min-time vs. trapezoidal)
+    for a fixed distance to illustrate the time vs. max_speed trade-off.
+    """
+    # --- 1. Calculate Baseline and Define V_max Targets ---
+    v_peak_ideal = np.sqrt(distance_m * max_accel)
+    # Set V_max targets as percentages of the ideal peak
+    vmax_75_percent = v_peak_ideal * 0.75
+    vmax_50_percent = v_peak_ideal * 0.50
+    vmax_25_percent = v_peak_ideal * 0.25
+
+    # --- 2. Run Simulations to Get Trajectory Data ---
+    sim_min_time = run_simulation(distance_m, max_accel, control_law_trapezoidal_unlimited)
+    time_min = sim_min_time['time'][-1]
+
+    sim_75_trap = run_simulation(distance_m, max_accel, control_law_trapezoidal_limited, target_v_max=vmax_75_percent)
+    time_75 = sim_75_trap['time'][-1]
+
+    sim_50_trap = run_simulation(distance_m, max_accel, control_law_trapezoidal_limited, target_v_max=vmax_50_percent)
+    time_50 = sim_50_trap['time'][-1]
+    
+    sim_25_trap = run_simulation(distance_m, max_accel, control_law_trapezoidal_limited, target_v_max=vmax_25_percent)
+    time_25 = sim_25_trap['time'][-1]
+
+    # --- 3. Plotting ---
+    plt.style.use('dark_background')
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    # Plot the min-time profile as a solid baseline
+    ax.plot(sim_min_time['time'], sim_min_time['velocity'],
+            label=f'Min-Time Profile (V_peak={v_peak_ideal:.2f} m/s) | Total Time: {time_min:.2f}s',
+            color='magenta', lw=2.5, linestyle='-')
+
+    # Plot the 75% trapezoid as dashed
+    ax.plot(sim_75_trap['time'], sim_75_trap['velocity'],
+            label=f'75% V_peak Limit ({vmax_75_percent:.2f} m/s) | Total Time: {time_75:.2f}s',
+            color='cyan', lw=2.5, linestyle='--')
+
+    # Plot the 50% trapezoid as dotted
+    ax.plot(sim_50_trap['time'], sim_50_trap['velocity'],
+            label=f'50% V_peak Limit ({vmax_50_percent:.2f} m/s) | Total Time: {time_50:.2f}s',
+            color='lime', lw=2.5, linestyle=':')
+
+    # Plot the 25% trapezoid as dash-dot
+    ax.plot(sim_25_trap['time'], sim_25_trap['velocity'],
+            label=f'25% V_peak Limit ({vmax_25_percent:.2f} m/s) | Total Time: {time_25:.2f}s',
+            color='yellow', lw=2.5, linestyle='-.')
+
+    # --- Final Touches ---
+    ax.set_title(f'Velocity Profile Comparison for Diagonal Path', fontsize=16)
+    ax.set_xlabel('Time (s)', fontsize=12)
+    ax.set_ylabel('Velocity (m/s)', fontsize=12)
+    ax.legend(loc='upper right')
+    ax.grid(True, linestyle='--', alpha=0.3)
+    ax.set_ylim(bottom=0)
+    ax.set_xlim(left=0)
+    fig.tight_layout()
+
 def plot_kinematics(sim_data, title):
     """Generates a 3x3 plot for pos, vel, and accel for a given simulation."""
     plt.style.use('dark_background')
@@ -400,11 +459,10 @@ def main():
         print_static_design_params()
         print_kinematic_requirements()
         print_power_system_requirements()
-        print_design_speed_recommendation() # New recommendation output
+        print_design_speed_recommendation()
 
 
         # --- Simulation runs for detailed analysis ---
-        # These can be commented out if you only need the up-front numbers.
         drag_race_sim_data = {}
         for name, dist_m in PATHS_M.items():
             drag_race_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_drag_race)
@@ -427,6 +485,12 @@ def main():
         # --- Plotting ---
         if ENABLE_PLOTTING:
             plot_field_paths()
+            
+            # Original kinematic plots (useful for diagnostics)
+            plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
+            plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Minimum Time)')
+            # plot_kinematics(trap_limited_sim_data, title=f'Kinematic Profiles (V-Max Limited Trapezoid @ {TARGET_V_MAX_MS} m/s)')
+
             # Generate the trade-off plot for all paths
             plot_optimal_speed_tradeoff(
                 paths_m_dict=PATHS_M,
@@ -435,10 +499,16 @@ def main():
                 efficiency=SYSTEM_EFFICIENCY,
                 voltage=BATTERY_VOLTAGE_4S
             )
+            # Generate the trajectory comparison plot for the Diagonal Path
+            plot_trajectory_comparison(
+                distance_m=PATHS_M['Diagonal'],
+                max_accel=MAX_ACCELERATION_MS2
+            )
             plt.show()
 
     except KeyboardInterrupt:
         print("\nSimulation aborted by user. Exiting.")
         sys.exit(0)
+
 if __name__ == "__main__":
     main()
