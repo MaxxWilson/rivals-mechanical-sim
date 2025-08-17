@@ -103,7 +103,7 @@ def control_law_trapezoidal_limited(state):
     else:
         return state['max_accel']
 
-def run_simulation(distance_m, max_accel, control_law_fn, target_v_max=None, dt=0.0001, max_sim_time_s = 15.0):
+def run_simulation(distance_m, max_accel, control_law_fn, target_v_max=None, dt=0.00001, max_sim_time_s = 15.0):
     """Runs a generic simulation loop, using a callback to get acceleration."""
     time, position, velocity = 0, 0, 0
     t_series, pos_series, vel_series, accel_series = [0], [0], [0], [0]
@@ -410,7 +410,7 @@ def plot_trajectory_comparison(distance_m, max_accel):
             color='yellow', lw=2.5, linestyle='-.')
 
     # --- Final Touches ---
-    ax.set_title(f'Velocity Profile Comparison for Diagonal Path', fontsize=16)
+    ax.set_title(f'Example Velocity Profiles', fontsize=16)
     ax.set_xlabel('Time (s)', fontsize=12)
     ax.set_ylabel('Velocity (m/s)', fontsize=12)
     ax.legend(loc='upper right')
@@ -447,6 +447,106 @@ def plot_kinematics(sim_data, title):
     max_abs_accel = np.max(np.abs(axes[2, 0].get_ylim()))
     axes[2, 0].set_ylim(-max_abs_accel, max_abs_accel)
 
+def plot_design_trajectories(distance_m, max_accel, design_points):
+    """
+    Calculates and plots velocity profiles for a list of specified design points,
+    with the min-time profile as a baseline.
+    """
+    plt.style.use('dark_background')
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    # --- Plot the Min-Time (Triangular) Profile as a baseline ---
+    sim_min_time = run_simulation(distance_m, max_accel, control_law_trapezoidal_unlimited)
+    ax.plot(sim_min_time['time'], sim_min_time['velocity'],
+            color='magenta', lw=2.5, linestyle='--') # Dashed line for baseline
+
+    # --- Plot the sweep of design points ---
+    for point in design_points:
+        v_max = point['v_max']
+        sim_data = run_simulation(distance_m, max_accel, control_law_trapezoidal_limited, target_v_max=v_max)
+        
+        ax.plot(sim_data['time'], sim_data['velocity'],
+                color=point['color'], lw=2.5) # Color comes from the design point
+
+    ax.set_title(f'Velocity Profiles for Various Design Points (Path Distance: {distance_m:.2f}m)', fontsize=16)
+    ax.set_xlabel('Time (s)', fontsize=12)
+    ax.set_ylabel('Velocity (m/s)', fontsize=12)
+    ax.grid(True, linestyle='--', alpha=0.3)
+    ax.set_ylim(bottom=0)
+    ax.set_xlim(left=0)
+    fig.tight_layout()
+
+def plot_tradeoff_with_designs(paths_m_dict, max_accel, max_force_n, design_points):
+    """
+    Generates the Time vs. Power plot, adds markers for design points, and marks the min-time point.
+    """
+    plt.style.use('dark_background')
+    fig, ax1 = plt.subplots(figsize=(12, 8))
+    path_colors = {'Side': 'cyan', 'Diagonal': 'lime', 'Curved': 'magenta'}
+    v_max_sweep = np.linspace(0.1, 8.0, 400)
+    ax1.set_xlabel('Max Velocity Limit (m/s)', fontsize=12)
+    ax1.set_ylabel('Total Trajectory Time (s)', fontsize=12)
+    ax1.grid(True, linestyle='--', alpha=0.2)
+    for name, distance_m in paths_m_dict.items():
+        times = [get_trapezoidal_time(distance_m, max_accel, v) for v in v_max_sweep]
+        ax1.plot(v_max_sweep, times, color=path_colors.get(name, 'white'), lw=2.5) # Removed labels
+    
+    longest_path_dist = max(paths_m_dict.values())
+    y_limit_time = get_trapezoidal_time(longest_path_dist, max_accel, 1.0)
+    ax1.set_ylim(bottom=0, top=y_limit_time)
+    
+    ax2 = ax1.twinx()
+    powers = [(max_force_n * v) for v in v_max_sweep]
+    ax2.set_ylabel('Peak Mechanical Power (W)', color='yellow', fontsize=12)
+    ax2.plot(v_max_sweep, powers, color='yellow', lw=3, linestyle='--') # Removed label
+    ax2.tick_params(axis='y', labelcolor='yellow')
+    ax2.set_ylim(bottom=0)
+
+    # --- Add Markers for the unified design points ---
+    side_path_dist = paths_m_dict.get('Side')
+    for point in design_points:
+        v_max = point['v_max']
+        time_at_vmax = get_trapezoidal_time(side_path_dist, max_accel, v_max)
+        power_at_vmax = max_force_n * v_max
+        ax1.scatter(v_max, time_at_vmax, s=80, color=point['color'], zorder=5, ec='white')
+        ax2.scatter(v_max, power_at_vmax, s=80, color=point['color'], zorder=5, ec='white')
+
+    # --- Add a special marker for the absolute Min-Time point on the Side path ---
+    v_peak_ideal = np.sqrt(side_path_dist * max_accel)
+    time_at_peak = get_trapezoidal_time(side_path_dist, max_accel, v_peak_ideal)
+    power_at_peak = max_force_n * v_peak_ideal
+    ax1.scatter(v_peak_ideal, time_at_peak, s=250, color='magenta', marker='*', zorder=6, ec='white')
+    ax2.scatter(v_peak_ideal, power_at_peak, s=250, color='magenta', marker='*', zorder=6, ec='white')
+
+    fig.suptitle('Time vs. Power Trade-Off with Various Design Points', fontsize=16)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+
+def calculate_vmax_for_time_ratio(distance_m, max_accel, time_ratio):
+    """
+    Calculates the target V_max that results in a total time equal to a percentage of the min time.
+    """
+    if time_ratio < 1.0:
+        return float('nan') # Cannot be faster than the minimum time
+
+    # T_min is the time for a triangular profile
+    min_time = 2 * np.sqrt(distance_m / max_accel)
+    target_time = min_time * time_ratio
+
+    # We need to solve the trapezoidal time equation for v: T = d/v + v/a
+    # This rearranges into a quadratic equation: v^2 - (a*T)v + ad = 0
+    a_quad = 1
+    b_quad = -max_accel * target_time
+    c_quad = max_accel * distance_m
+
+    # Check if a solution exists
+    discriminant = b_quad**2 - 4 * a_quad * c_quad
+    if discriminant < 0:
+        return float('nan')
+
+    # The quadratic formula gives two solutions for v. We want the smaller one,
+    # which corresponds to the velocity-limited profile on the left side of the time curve's minimum.
+    v_max = (-b_quad - np.sqrt(discriminant)) / (2 * a_quad)
+    return v_max
 
 # =================================================================================
 # --- MAIN EXECUTION ---
@@ -477,33 +577,53 @@ def main():
 
 
         # --- Output simulation results ---
-        print_sim_results(drag_race_sim_data, "Drag Race Simulation Results")
-        print_sim_results(trap_unlimited_sim_data, "Minimum Time Profile Results")
-        print_sim_results(trap_limited_sim_data, f"V-Max Limited Trapezoidal Profile Results (@ {TARGET_V_MAX_MS} m/s)")
+        # print_sim_results(drag_race_sim_data, "Drag Race Simulation Results")
+        # print_sim_results(trap_unlimited_sim_data, "Minimum Time Profile Results")
+        # print_sim_results(trap_limited_sim_data, f"V-Max Limited Trapezoidal Profile Results (@ {TARGET_V_MAX_MS} m/s)")
 
+        # --- Generate a unified list of design points for plotting ---
+        TIME_RATIOS_TO_TEST = np.arange(1.0, 2.0, 0.02)
+        design_points = []
+        path_for_design = PATHS_M['Diagonal'] # Use Diagonal path as the reference for these designs
+        colors = plt.cm.plasma(np.linspace(0, 1, len(TIME_RATIOS_TO_TEST)))
 
+        for i, ratio in enumerate(TIME_RATIOS_TO_TEST):
+            v_max = calculate_vmax_for_time_ratio(path_for_design, MAX_ACCELERATION_MS2, ratio)
+            if np.isnan(v_max) or v_max == 0: continue # Skip if no solution
+            
+            design_points.append({
+                'v_max': v_max,
+                'label': f'{ratio:.1%} Min Time',
+                'color': colors[i]
+            })
+            
         # --- Plotting ---
         if ENABLE_PLOTTING:
-            plot_field_paths()
+            # plot_field_paths()
             
             # Original kinematic plots (useful for diagnostics)
-            plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
-            plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Minimum Time)')
-            # plot_kinematics(trap_limited_sim_data, title=f'Kinematic Profiles (V-Max Limited Trapezoid @ {TARGET_V_MAX_MS} m/s)')
+            # plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
+            # plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Minimum Time)')
 
-            # Generate the trade-off plot for all paths
-            plot_optimal_speed_tradeoff(
+            # Generate the trajectory comparison plot for the Diagonal Path
+            # plot_trajectory_comparison(
+            #     distance_m=PATHS_M['Diagonal'],
+            #     max_accel=MAX_ACCELERATION_MS2
+            # )
+            # Plot 1: Show what the different profiles look like
+            plot_design_trajectories(
+                distance_m=path_for_design,
+                max_accel=MAX_ACCELERATION_MS2,
+                design_points=design_points
+            )
+            # Plot 2: Show where the design choices land on the trade-off curve
+            plot_tradeoff_with_designs(
                 paths_m_dict=PATHS_M,
                 max_accel=MAX_ACCELERATION_MS2,
                 max_force_n=MAX_TRACTIVE_FORCE_N,
-                efficiency=SYSTEM_EFFICIENCY,
-                voltage=BATTERY_VOLTAGE_4S
+                design_points=design_points
             )
-            # Generate the trajectory comparison plot for the Diagonal Path
-            plot_trajectory_comparison(
-                distance_m=PATHS_M['Diagonal'],
-                max_accel=MAX_ACCELERATION_MS2
-            )
+            
             plt.show()
 
     except KeyboardInterrupt:
