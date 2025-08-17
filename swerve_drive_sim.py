@@ -583,18 +583,40 @@ def main():
 
         # --- Generate a unified list of design points for plotting ---
         TIME_RATIOS_TO_TEST = np.arange(1.0, 2.0, 0.02)
+        num_points = len(TIME_RATIOS_TO_TEST)
+        
+        # --- Generate a high-contrast color list from a sequential colormap ---
+        # 1. Create the full sequential colormap
+        sequential_colors = plt.cm.plasma(np.linspace(0, 1, num_points))
+        
+        # 2. Split the colormap into two halves (darks and brights)
+        first_half = sequential_colors[:num_points//2]
+        second_half = sequential_colors[num_points//2:]
+        
+        # 3. Weave the two halves together to create an alternating pattern
+        contrasted_colors = []
+        i, j = 0, 0
+        while i < len(first_half) and j < len(second_half):
+            contrasted_colors.append(first_half[i])
+            i += 1
+            contrasted_colors.append(second_half[j])
+            j += 1
+        # Append any remaining elements if the list has an odd number of points
+        contrasted_colors.extend(first_half[i:])
+        contrasted_colors.extend(second_half[j:])
+        
+        # --- Create the design points list ---
         design_points = []
-        path_for_design = PATHS_M['Diagonal'] # Use Diagonal path as the reference for these designs
-        colors = plt.cm.plasma(np.linspace(0, 1, len(TIME_RATIOS_TO_TEST)))
+        path_for_design = PATHS_M['Diagonal'] # Use Diagonal path as the reference
 
         for i, ratio in enumerate(TIME_RATIOS_TO_TEST):
             v_max = calculate_vmax_for_time_ratio(path_for_design, MAX_ACCELERATION_MS2, ratio)
-            if np.isnan(v_max) or v_max == 0: continue # Skip if no solution
+            if np.isnan(v_max) or v_max == 0: continue
             
             design_points.append({
                 'v_max': v_max,
                 'label': f'{ratio:.1%} Min Time',
-                'color': colors[i]
+                'color': contrasted_colors[i] # Use the new contrasted color
             })
             
         # --- Plotting ---
