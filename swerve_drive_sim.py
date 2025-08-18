@@ -478,7 +478,7 @@ def plot_design_trajectories(distance_m, max_accel, design_points):
 
 def plot_tradeoff_with_designs(paths_m_dict, max_accel, max_force_n, design_points):
     """
-    Generates the Time vs. Power plot, adds markers for design points, and marks the min-time point.
+    Generates the Time vs. Power plot with a clean legend and adds markers for design points.
     """
     plt.style.use('dark_background')
     fig, ax1 = plt.subplots(figsize=(12, 8))
@@ -487,9 +487,11 @@ def plot_tradeoff_with_designs(paths_m_dict, max_accel, max_force_n, design_poin
     ax1.set_xlabel('Max Velocity Limit (m/s)', fontsize=12)
     ax1.set_ylabel('Total Trajectory Time (s)', fontsize=12)
     ax1.grid(True, linestyle='--', alpha=0.2)
+
+    # Plot time curves with labels for the legend
     for name, distance_m in paths_m_dict.items():
         times = [get_trapezoidal_time(distance_m, max_accel, v) for v in v_max_sweep]
-        ax1.plot(v_max_sweep, times, color=path_colors.get(name, 'white'), lw=2.5) # Removed labels
+        ax1.plot(v_max_sweep, times, color=path_colors.get(name, 'white'), lw=2.5, label=f'Travel Time ({name})')
     
     longest_path_dist = max(paths_m_dict.values())
     y_limit_time = get_trapezoidal_time(longest_path_dist, max_accel, 1.0)
@@ -498,27 +500,33 @@ def plot_tradeoff_with_designs(paths_m_dict, max_accel, max_force_n, design_poin
     ax2 = ax1.twinx()
     powers = [(max_force_n * v) for v in v_max_sweep]
     ax2.set_ylabel('Peak Mechanical Power (W)', color='yellow', fontsize=12)
-    ax2.plot(v_max_sweep, powers, color='yellow', lw=3, linestyle='--') # Removed label
+    # Plot power curve with a label for the legend
+    ax2.plot(v_max_sweep, powers, color='yellow', lw=3, linestyle='--', label='Peak Mechanical Power')
     ax2.tick_params(axis='y', labelcolor='yellow')
     ax2.set_ylim(bottom=0)
 
-    # --- Add Markers for the unified design points ---
+    # --- Add Markers for the unified design points (unlabeled) ---
     side_path_dist = paths_m_dict.get('Side')
     for point in design_points:
         v_max = point['v_max']
         time_at_vmax = get_trapezoidal_time(side_path_dist, max_accel, v_max)
         power_at_vmax = max_force_n * v_max
+        # No 'label' argument for the scatter points
         ax1.scatter(v_max, time_at_vmax, s=80, color=point['color'], zorder=5, ec='white')
         ax2.scatter(v_max, power_at_vmax, s=80, color=point['color'], zorder=5, ec='white')
 
-    # --- Add a special marker for the absolute Min-Time point on the Side path ---
+    # --- Add a special marker for the absolute Min-Time point (unlabeled) ---
     v_peak_ideal = np.sqrt(side_path_dist * max_accel)
     time_at_peak = get_trapezoidal_time(side_path_dist, max_accel, v_peak_ideal)
     power_at_peak = max_force_n * v_peak_ideal
     ax1.scatter(v_peak_ideal, time_at_peak, s=250, color='magenta', marker='*', zorder=6, ec='white')
     ax2.scatter(v_peak_ideal, power_at_peak, s=250, color='magenta', marker='*', zorder=6, ec='white')
 
-    fig.suptitle('Time vs. Power Trade-Off with Various Design Points', fontsize=16)
+    # --- Set new title and build the clean legend for the main curves ---
+    fig.suptitle('Travel Time and Peak Power vs. Velocity Limit', fontsize=16)
+    lines, labels = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines + lines2, labels + labels2, loc='upper center')
     fig.tight_layout(rect=[0, 0, 1, 0.96])
 
 def calculate_vmax_for_time_ratio(distance_m, max_accel, time_ratio):
@@ -548,6 +556,159 @@ def calculate_vmax_for_time_ratio(distance_m, max_accel, time_ratio):
     v_max = (-b_quad - np.sqrt(discriminant)) / (2 * a_quad)
     return v_max
 
+def plot_normalized_tradeoff(paths_m_dict, max_accel, max_force_n):
+    """
+    Generates a 3-row subplot of the normalized trade-off, one for each path,
+    with a consistent and correct shared X-axis.
+    """
+    plt.style.use('dark_background')
+    # Create a 3x1 subplot grid, sharing the X-axis for easy comparison.
+    fig, axes = plt.subplots(3, 1, figsize=(10, 15), sharex=True)
+    
+    path_list = sorted(paths_m_dict.items(), key=lambda item: item[1]) # Sort by distance
+
+    fig.suptitle('Normalized Performance Metrics vs. Velocity Limit', fontsize=16)
+
+    # --- Define a single, consistent sweep range for all subplots ---
+    # The range is determined by the longest path, which will have the highest v_peak.
+    longest_path_dist = max(paths_m_dict.values())
+    max_v_peak = np.sqrt(longest_path_dist * max_accel)
+    v_max_sweep = np.linspace(0.1, max_v_peak, 500)
+
+    for i, (name, distance_m) in enumerate(path_list):
+        ax = axes[i]
+        
+        # --- Baseline Calculations for this specific path ---
+        t_min = 2 * np.sqrt(distance_m / max_accel)
+        v_peak_path = np.sqrt(distance_m * max_accel)
+        p_at_peak = max_force_n * v_peak_path
+        ad_product = max_accel * distance_m
+
+        # --- Sweep Calculations across the shared v_max_sweep ---
+        time_penalty_percent = []
+        coast_percent = []
+        
+        for v in v_max_sweep:
+            if v > v_peak_path:
+                time_penalty_percent.append(0)
+                coast_percent.append(0)
+            else:
+                t_current = get_trapezoidal_time(distance_m, max_accel, v)
+                time_penalty_percent.append(((t_current - t_min) / t_min) * 100)
+                coast_percent.append(100 * (ad_product - v**2) / (ad_product + v**2) if (ad_product + v**2) > 0 else 0)
+        
+        powers = [max_force_n * v for v in v_max_sweep]
+        power_percent = [(p / p_at_peak) * 100 for p in powers]
+
+        # --- Plotting ---
+        ax.plot(v_max_sweep, time_penalty_percent, color='cyan', lw=2.5, linestyle='-', label='Time Penalty (%)')
+        ax.plot(v_max_sweep, power_percent, color='yellow', lw=2.5, linestyle='--', label='Power Usage (%)')
+        ax.plot(v_max_sweep, coast_percent, color='magenta', lw=2.5, linestyle=':', label='Coast Time (%)')
+
+        # --- Subplot Formatting ---
+        ax.set_title(f'Path: {name} ({distance_m:.2f}m)')
+        ax.legend(loc='center right')
+        ax.grid(True, linestyle='--', alpha=0.3)
+        ax.set_ylim(bottom=0, top=100)
+
+    # --- Overall Figure Formatting ---
+    axes[-1].set_xlabel('Max Velocity Limit (m/s)', fontsize=12)
+    axes[1].set_ylabel('Normalized Percentage (%)', fontsize=12)
+
+    fig.tight_layout(rect=[0, 0.03, 1, 0.96])
+
+def plot_sum_of_squares_cost(paths_m_dict, max_accel, max_force_n):
+    """
+    Calculates and plots a balanced weighted sum of squares cost function for all paths.
+    """
+    plt.style.use('dark_background')
+    fig, ax = plt.subplots(figsize=(12, 7))
+    path_colors = {'Side': 'cyan', 'Diagonal': 'lime', 'Curved': 'magenta'}
+    
+    # Use balanced 50/50 weights for this analysis
+    weights = {'w_time': 0.5, 'w_power': 0.5}
+
+    for name, distance_m in paths_m_dict.items():
+        # --- Baseline Calculations for this path ---
+        t_min = 2 * np.sqrt(distance_m / max_accel)
+        v_peak = np.sqrt(distance_m * max_accel)
+        p_at_peak = max_force_n * v_peak
+        color = path_colors.get(name)
+
+        # --- Sweep and Cost Calculation ---
+        v_max_sweep = np.linspace(1.0, v_peak, 400)
+        costs = []
+        for v in v_max_sweep:
+            time_penalty = (get_trapezoidal_time(distance_m, max_accel, v) - t_min) / t_min
+            power_usage = (max_force_n * v) / p_at_peak
+            total_cost = (weights['w_time'] * (time_penalty**2)) + (weights['w_power'] * (power_usage**2))
+            costs.append(total_cost)
+
+        # --- Plotting ---
+        ax.plot(v_max_sweep, costs, color=color, lw=2.5, label=f'Cost ({name})')
+        min_cost_index = np.argmin(costs)
+        optimal_v = v_max_sweep[min_cost_index]
+        min_cost = costs[min_cost_index]
+        ax.scatter(optimal_v, min_cost, s=150, color=color, ec='white', zorder=5,
+                   label=f'Optimal V_max ({name}): {optimal_v:.2f} m/s')
+
+    # --- Final Touches ---
+    ax.set_title('Balanced (50/50) Sum of Squares Cost For All Paths', fontsize=16)
+    ax.set_xlabel('Max Velocity Limit (m/s)', fontsize=12)
+    ax.set_ylabel('Total Weighted Cost (Unitless)', fontsize=12)
+    ax.legend(loc='upper right')
+    ax.grid(True, linestyle='--', alpha=0.3)
+    longest_path_dist = max(paths_m_dict.values())
+    max_v_peak = np.sqrt(longest_path_dist * max_accel)
+    ax.set_xlim(left=1.0, right=max_v_peak)
+    ax.set_ylim(bottom=0)
+    fig.tight_layout()
+
+def print_bounds_analysis(paths_m_dict, max_accel, max_force_n):
+    """
+    Calculates and prints a full suite of performance metrics at a proposed upper-bound velocity.
+    """
+    # --- Define the Proposed Bounds ---
+    LOWER_BOUND_VMAX = 2.0
+    UPPER_BOUND_VMAX = 4.0
+
+    print("--- Design Speed Bounds Analysis ---")
+    print(f"Proposed Practical Speed Range: {LOWER_BOUND_VMAX:.1f} m/s to {UPPER_BOUND_VMAX:.1f} m/s")
+    print(f"\nPerformance metrics at the proposed upper bound of {UPPER_BOUND_VMAX:.1f} m/s:")
+    
+    header = f"{'Path':<12} | {'Time Pen. (s)':<15} | {'Time Pen. (%)':<15} | {'Coast Time (%)':<15} | {'Pwr Saved (W)':<15} | {'Pwr Saved (%)':<15}"
+    print(header)
+    print("-" * (len(header) + 12))
+
+    # Ensure paths are in a consistent order
+    path_list = sorted(paths_m_dict.items(), key=lambda item: item[1])
+
+    for name, dist_m in path_list:
+        # --- Time Penalty Calculations ---
+        t_min = 2 * np.sqrt(dist_m / max_accel)
+        t_at_upper_bound = get_trapezoidal_time(dist_m, max_accel, UPPER_BOUND_VMAX)
+        time_penalty_seconds = t_at_upper_bound - t_min
+        time_penalty_percent = (time_penalty_seconds / t_min) * 100
+
+        # --- Peak Velocity and Power Calculations ---
+        v_peak_path = np.sqrt(max_accel * dist_m)
+        v_actual_peak = min(UPPER_BOUND_VMAX, v_peak_path)
+        p_max = max_force_n * v_peak_path
+        p_actual = max_force_n * v_actual_peak
+        power_saved_watts = p_max - p_actual
+        percent_power_saved = (power_saved_watts / p_max) * 100 if p_max > 0 else 0
+
+        # --- Coast Percentage Calculation ---
+        ad_product = max_accel * dist_m
+        if UPPER_BOUND_VMAX < v_peak_path:
+            coast_ratio = (ad_product - UPPER_BOUND_VMAX**2) / (ad_product + UPPER_BOUND_VMAX**2)
+            coast_percent = coast_ratio * 100
+        else:
+            coast_percent = 0.0
+
+        print(f"{name:<12} | {time_penalty_seconds:<15.3f}s | {time_penalty_percent:<15.2f}% | {coast_percent:<15.2f}% | {power_saved_watts:<15.2f}W | {percent_power_saved:<15.2f}%")
+    
+    print("-" * (len(header) + 12) + "\n")
 # =================================================================================
 # --- MAIN EXECUTION ---
 # =================================================================================
@@ -559,8 +720,8 @@ def main():
         print_static_design_params()
         print_kinematic_requirements()
         print_power_system_requirements()
-        print_design_speed_recommendation()
-
+        # print_design_speed_recommendation()
+        print_bounds_analysis(PATHS_M, MAX_ACCELERATION_MS2, MAX_TRACTIVE_FORCE_N)
 
         # --- Simulation runs for detailed analysis ---
         drag_race_sim_data = {}
@@ -582,41 +743,29 @@ def main():
         # print_sim_results(trap_limited_sim_data, f"V-Max Limited Trapezoidal Profile Results (@ {TARGET_V_MAX_MS} m/s)")
 
         # --- Generate a unified list of design points for plotting ---
-        TIME_RATIOS_TO_TEST = np.arange(1.0, 2.0, 0.02)
-        num_points = len(TIME_RATIOS_TO_TEST)
+        TIME_RATIOS_TO_TEST = np.arange(1.0, 2.0, 0.05)
         
-        # --- Generate a high-contrast color list from a sequential colormap ---
-        # 1. Create the full sequential colormap
-        sequential_colors = plt.cm.plasma(np.linspace(0, 1, num_points))
+        # --- Generate a curated, 6-color "Cyberpunk" palette ---
+        # We'll sample the 'plasma' colormap at 6 specific, non-adjacent points
+        # to get a cohesive but high-contrast set of colors.
+        colormap = plt.colormaps.get('plasma')
+        color_indices = [0.05, 0.25, 0.45, 0.65, 0.85, 0.95]
+        CYBERPUNK_COLORS = [colormap(i) for i in color_indices]
         
-        # 2. Split the colormap into two halves (darks and brights)
-        first_half = sequential_colors[:num_points//2]
-        second_half = sequential_colors[num_points//2:]
-        
-        # 3. Weave the two halves together to create an alternating pattern
-        contrasted_colors = []
-        i, j = 0, 0
-        while i < len(first_half) and j < len(second_half):
-            contrasted_colors.append(first_half[i])
-            i += 1
-            contrasted_colors.append(second_half[j])
-            j += 1
-        # Append any remaining elements if the list has an odd number of points
-        contrasted_colors.extend(first_half[i:])
-        contrasted_colors.extend(second_half[j:])
-        
-        # --- Create the design points list ---
         design_points = []
         path_for_design = PATHS_M['Diagonal'] # Use Diagonal path as the reference
 
         for i, ratio in enumerate(TIME_RATIOS_TO_TEST):
             v_max = calculate_vmax_for_time_ratio(path_for_design, MAX_ACCELERATION_MS2, ratio)
-            if np.isnan(v_max) or v_max == 0: continue
+            if np.isnan(v_max) or v_max == 0: continue # Skip if no solution
             
+            # Cycle through the curated 6-color palette
+            color = CYBERPUNK_COLORS[i % len(CYBERPUNK_COLORS)]
+
             design_points.append({
                 'v_max': v_max,
                 'label': f'{ratio:.1%} Min Time',
-                'color': contrasted_colors[i] # Use the new contrasted color
+                'color': color
             })
             
         # --- Plotting ---
@@ -645,7 +794,20 @@ def main():
                 max_force_n=MAX_TRACTIVE_FORCE_N,
                 design_points=design_points
             )
-            
+
+            # Plot 3: The new normalized plot for all paths
+            plot_normalized_tradeoff(
+                paths_m_dict=PATHS_M,
+                max_accel=MAX_ACCELERATION_MS2,
+                max_force_n=MAX_TRACTIVE_FORCE_N
+            )
+            # Plot 4: The final, definitive cost function plot for all paths
+            plot_sum_of_squares_cost(
+                paths_m_dict=PATHS_M,
+                max_accel=MAX_ACCELERATION_MS2,
+                max_force_n=MAX_TRACTIVE_FORCE_N
+            )
+
             plt.show()
 
     except KeyboardInterrupt:
