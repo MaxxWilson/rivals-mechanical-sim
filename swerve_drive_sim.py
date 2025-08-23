@@ -2,12 +2,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
+import os
 
 # =================================================================================
 # --- GLOBAL CONSTANTS AND ONE-TIME CALCULATIONS ---
 # =================================================================================
 # Script Control
-ENABLE_PLOTTING=True
+ENABLE_PLOTTING=False
+PRESENTATION_MODE=False
 
 # Unit Conversions
 LBS_TO_KG = 0.453592
@@ -147,7 +149,7 @@ def get_trapezoidal_time(distance_m, max_accel, v_max):
         time = (distance_m / v_max) + (v_max / max_accel)
     return time
 
-def print_static_design_params():
+def print_force_accel_params():
     """Prints a summary of the static design parameters and requirements."""
     print("--------------------------------------")
     print("--- Swerve Design Simulation Setup ---")
@@ -155,36 +157,75 @@ def print_static_design_params():
     print(f"Robot Mass: {ROBOT_MASS_KG:.2f} kg ({ROBOT_WEIGHT_LBS} lbs)")
     print(f"Max Tractive Force: {MAX_TRACTIVE_FORCE_N:.2f} N")
     print(f"Max Linear Acceleration: {MAX_ACCELERATION_MS2:.2f} m/s^2")
-    print(f"Torque per Motor to Slip: {TORQUE_PER_MOTOR_BEFORE_SLIP_NM:.3f} Nm")
 
-def print_power_system_requirements():
-    print("---------------------------------")
-    print("--- Power System Requirements ---")
-    print("---------------------------------")
-    print(f"Required Peak Mechanical Power: {P_MECH_PEAK_W:.1f} W (@ {TARGET_V_MAX_MS:.2f}m/s Top Speed, {MAX_TRACTIVE_FORCE_N:.2f}N Pushing Force)")
-    print(f"Required Peak Electrical Power: {P_ELEC_PEAK_W:.1f} W (@ {SYSTEM_EFFICIENCY*100:.0f}% eff)")
-    print(f"Required Electrical Power per Motor: {P_ELEC_PEAK_W/ NUM_DRIVE_MOTORS:.1f} W (@ {SYSTEM_EFFICIENCY*100:.0f}% eff)")
-    print("")
+def print_drivetrain_requirements(lower_bound_v, upper_bound_v):
+    """
+    Calculates and prints the final proposed drivetrain requirements in a summary table.
+    """
+    # --- Calculations for single-value metrics ---
+    force_per_wheel = MAX_TRACTIVE_FORCE_N / NUM_DRIVE_MOTORS
 
-    print(f"Total Drive Current at 4S (@{BATTERY_VOLTAGE_4S}V): {I_TOTAL_REQUIRED_A_4S:.2f} A")
-    print(f"Current per Motor at 4S (@{BATTERY_VOLTAGE_4S}V): {I_PER_MOTOR_REQUIRED_A_4S:.2f} A")
+    # --- Calculations for ranged metrics ---
+    p_mech_lower = MAX_TRACTIVE_FORCE_N * lower_bound_v
+    p_mech_upper = MAX_TRACTIVE_FORCE_N * upper_bound_v
+    p_elec_lower = p_mech_lower / SYSTEM_EFFICIENCY
+    p_elec_upper = p_mech_upper / SYSTEM_EFFICIENCY
+    i_total_4s_lower = p_elec_lower / BATTERY_VOLTAGE_4S
+    i_total_4s_upper = p_elec_upper / BATTERY_VOLTAGE_4S
+    i_motor_4s_lower = i_total_4s_lower / NUM_DRIVE_MOTORS
+    i_motor_4s_upper = i_total_4s_upper / NUM_DRIVE_MOTORS
 
-    print("")
-    print(f"Total Drive Current at 6S (@{BATTERY_VOLTAGE_6S}V): {I_TOTAL_REQUIRED_A_6S:.2f} A")
-    print(f"Current per Motor at 6S (@{BATTERY_VOLTAGE_6S}V): {I_PER_MOTOR_REQUIRED_A_6S:.2f} A")
-    print("\n")
+    # --- Table Formatting ---
+    print("\n--- Proposed Drivetrain Requirements ---")
+    w1, w2 = 35, 25
+    header = f"{'Requirement':<{w1}} | {'Value':<{w2}} |"
+    print(header)
+    print("-" * len(header))
+
+    # Helper function for printing rows consistently
+    def print_row(label, value_str):
+        print(f"{label:<{w1}} | {value_str:>{w2}} |")
+
+    # --- Force / Acceleration Section ---
+    print_row("Max Acceleration", f"{MAX_ACCELERATION_MS2:.2f} m/s^2")
+    print_row("Maximum Pushing Force", f"{MAX_TRACTIVE_FORCE_N:.2f} N")
+    print_row("Maximum Force per Wheel", f"{force_per_wheel:.2f} N")
+    print("-" * len(header)) # Sub-separator
+
+    # --- Velocity / Power Section ---
+    vel_range_str = f"{lower_bound_v:.1f} - {upper_bound_v:.1f} m/s"
+    mech_pwr_range_str = f"{p_mech_lower:.1f}W - {p_mech_upper:.1f}W"
+    elec_pwr_range_str = f"{p_elec_lower:.1f}W - {p_elec_upper:.1f}W"
+    pwr_motor_range_str = f"{(p_elec_lower/NUM_DRIVE_MOTORS):.1f}W - {(p_elec_upper/NUM_DRIVE_MOTORS):.1f}W"
+
+    print_row("Maximum Linear Velocity", vel_range_str)
+    print_row("Peak Mechanical Power", mech_pwr_range_str)
+    print_row("Peak Electrical Power", elec_pwr_range_str)
+    print_row("Power per Motor", pwr_motor_range_str)
+    print("-" * len(header)) # Sub-separator
+
+    # --- Current Section (4S) ---
+    total_curr_4s_str = f"{i_total_4s_lower:.1f}A - {i_total_4s_upper:.1f}A"
+    motor_curr_4s_str = f"{i_motor_4s_lower:.1f}A - {i_motor_4s_upper:.1f}A"
+
+    print_row(f"Total Current (4S @ {BATTERY_VOLTAGE_4S:.1f}V)", total_curr_4s_str)
+    print_row("Current per Motor (4S)", motor_curr_4s_str)
+    
+    print("-" * len(header))
 
 def print_sim_results(sim_data, title):
     """Prints a summary for a given simulation result."""
+    print("")
     print(f"--- {title} ---")
-    header = f"{'Path':<12} | {'Peak Velocity (m/s)':<20} | {'Total Time (s)':<15}"
+    header = f"{'Path':<8} | {'Peak Velocity (m/s)':<20}| {'Total Time (s)':<15}|"
     print(header)
     print("-" * len(header))
     for name, data in sim_data.items():
         peak_vel = np.max(data['velocity'])
         total_time = data['time'][-1]
-        print(f"{name:<12} | {peak_vel:<20.2f} | {total_time:<15.3f}")
-    print("-----------------------------------------------------\n")
+        print(f"{name:<8} | {peak_vel:>15.2f} m/s | {total_time:>13.3f}s |")
+    print("-" * len(header))
+    print("")
 
 def plot_field_paths():
     """Generates a top-down plot of the field and simulated paths."""
@@ -247,11 +288,14 @@ def plot_kinematics(sim_data, title):
     max_abs_accel = np.max(np.abs(axes[2, 0].get_ylim()))
     axes[2, 0].set_ylim(-max_abs_accel, max_abs_accel)
 
-def plot_design_trajectories(distance_m, max_accel, design_points):
+def plot_design_trajectories(distance_m, design_points, max_accel=MAX_ACCELERATION_MS2):
     """
     Calculates and plots velocity profiles for a list of specified design points,
     with the min-time profile as a baseline.
     """
+    print("")
+    print("Generating Design Trajectories...")
+    print("")
     plt.style.use('dark_background')
     fig, ax = plt.subplots(figsize=(12, 7))
     
@@ -276,7 +320,7 @@ def plot_design_trajectories(distance_m, max_accel, design_points):
     ax.set_xlim(left=0)
     fig.tight_layout()
 
-def plot_tradeoff_with_designs(paths_m_dict, max_accel, max_force_n, design_points):
+def plot_tradeoff_with_designs(paths_m_dict, design_points, max_accel=MAX_ACCELERATION_MS2, max_force_n=MAX_TRACTIVE_FORCE_N):
     """
     Generates the Time vs. Power plot with a clean legend and adds markers for design points.
     """
@@ -464,19 +508,74 @@ def plot_sum_of_squares_cost(paths_m_dict, max_accel, max_force_n):
     ax.set_ylim(bottom=0)
     fig.tight_layout()
 
-def print_bounds_analysis(paths_m_dict, max_accel, max_force_n):
+def generate_design_points(time_ratios, ref_path_dist, max_accel):
+    """
+    Generates a list of design points by sweeping through time ratios
+    relative to the minimum time for a given reference path.
+    """
+    colormap = plt.colormaps.get('plasma')
+    color_indices = [0.05, 0.25, 0.45, 0.65, 0.85, 0.95]
+    cyberpunk_colors = [colormap(i) for i in color_indices]
+
+    design_points = []
+    for i, ratio in enumerate(time_ratios):
+        v_max = calculate_vmax_for_time_ratio(ref_path_dist, max_accel, ratio)
+        if np.isnan(v_max) or v_max == 0:
+            continue
+
+        color = cyberpunk_colors[i % len(cyberpunk_colors)]
+        design_points.append({
+            'ratio': ratio,
+            'v_max': v_max,
+            'color': color
+        })
+    return design_points
+
+def print_design_points(design_points, ref_path_name, ref_path_dist, max_accel):
+    """
+    Prints a professional, full-context table of the generated design points,
+    matching the requested right-aligned format.
+    """
+    # First, calculate the baseline minimum time for the reference path
+    t_min = 2 * np.sqrt(ref_path_dist / max_accel)
+
+    print(f"--- Design Point Analysis (Reference Path: {ref_path_name}, Min Time: {t_min:.3f}s) ---")
+
+    # Define column titles and derive widths from them for perfect alignment
+    h1, h2, h3 = "Time Ratio (%)", "Time Penalty (s)", "Required V_max (m/s)"
+    w1, w2, w3 = len(h1), len(h2), len(h3)
+
+    # Format the header with left-alignment
+    header = f"{h1:<{w1}} | {h2:<{w2}} | {h3:<{w3}} |"
+    print(header)
+    print("-" * len(header))
+
+    for point in design_points:
+        ratio = point['ratio']
+        v_max = point['v_max']
+        
+        # Calculate the absolute time penalty in seconds
+        time_penalty_s = (ratio * t_min) - t_min
+        
+        # Build the strings with numbers and their units
+        ratio_str = f"{(ratio * 100):.0f}%"
+        penalty_str = f"{time_penalty_s:.3f}s"
+        vmax_str = f"{v_max:.2f} m/s"
+        
+        # Print the data strings with right-alignment within the column widths
+        print(f"{ratio_str:>{w1}} | {penalty_str:>{w2}} | {vmax_str:>{w3}} |")
+        
+    print("-" * len(header))
+
+def print_bounds_analysis(paths_m_dict, lower_bound, upper_bound, max_accel=MAX_ACCELERATION_MS2, max_force_n=MAX_TRACTIVE_FORCE_N):
     """
     Calculates and prints a full suite of performance metrics at a proposed upper-bound velocity.
     """
-    # --- Define the Proposed Bounds ---
-    LOWER_BOUND_VMAX = 2.0
-    UPPER_BOUND_VMAX = 4.0
-
     print("--- Design Speed Bounds Analysis ---")
-    print(f"Proposed Practical Speed Range: {LOWER_BOUND_VMAX:.1f} m/s to {UPPER_BOUND_VMAX:.1f} m/s\n")
-    print(f"Performance metrics at the proposed upper bound of {UPPER_BOUND_VMAX:.1f} m/s:")
+    print(f"Proposed Practical Speed Range: {lower_bound:.1f} m/s to {upper_bound:.1f} m/s\n")
+    print(f"Performance metrics at the proposed upper bound of {upper_bound:.1f} m/s:")
     
-    header = f"{'Path':<12} | {'Time Penalty (%)':<15} | {'Time Penalty (s)':<15} | {'Power Saved (%)':<16} | {'Power Saved (W)':<16} | {'Coast Time (%)':<13} |"
+    header = f"{'Path':<8} | {'Time Penalty (%)':<15} | {'Time Penalty (s)':<15} | {'Power Saved (%)':<16} | {'Power Saved (W)':<16} | {'Coast Time (%)':<13} |"
     print(header)
     print("-" * (len(header)))
 
@@ -486,13 +585,13 @@ def print_bounds_analysis(paths_m_dict, max_accel, max_force_n):
     for name, dist_m in path_list:
         # --- Time Penalty Calculations ---
         t_min = 2 * np.sqrt(dist_m / max_accel)
-        t_at_upper_bound = get_trapezoidal_time(dist_m, max_accel, UPPER_BOUND_VMAX)
+        t_at_upper_bound = get_trapezoidal_time(dist_m, max_accel, upper_bound)
         time_penalty_seconds = t_at_upper_bound - t_min
         time_penalty_percent = (time_penalty_seconds / t_min) * 100
 
         # --- Peak Velocity and Power Calculations ---
         v_peak_path = np.sqrt(max_accel * dist_m)
-        v_actual_peak = min(UPPER_BOUND_VMAX, v_peak_path)
+        v_actual_peak = min(upper_bound, v_peak_path)
         p_max = max_force_n * v_peak_path
         p_actual = max_force_n * v_actual_peak
         power_saved_watts = p_max - p_actual
@@ -500,108 +599,139 @@ def print_bounds_analysis(paths_m_dict, max_accel, max_force_n):
 
         # --- Coast Percentage Calculation ---
         ad_product = max_accel * dist_m
-        if UPPER_BOUND_VMAX < v_peak_path:
-            coast_ratio = (ad_product - UPPER_BOUND_VMAX**2) / (ad_product + UPPER_BOUND_VMAX**2)
+        if upper_bound < v_peak_path:
+            coast_ratio = (ad_product - upper_bound**2) / (ad_product + upper_bound**2)
             coast_percent = coast_ratio * 100
         else:
             coast_percent = 0.0
 
-        print(f"{name:<12} | {time_penalty_percent:>15.2f}% | {time_penalty_seconds:>15.3f}s | {percent_power_saved:>15.2f}% | {power_saved_watts:>15.2f}W | {coast_percent:>13.2f}% |")
+        print(f"{name:<8} | {time_penalty_percent:>15.2f}% | {time_penalty_seconds:>15.3f}s | {percent_power_saved:>15.2f}% | {power_saved_watts:>15.2f}W | {coast_percent:>13.2f}% |")
     
-    print("-" * (len(header)) + "\n")
+    print("-" * (len(header)))
+
+def print_cost_function_results(paths_m_dict, max_accel, max_force_n):
+    """
+    Calculates and prints a summary table of the optimal V_max for each path,
+    using the same manual formatting as the bounds analysis table.
+    """
+    print("\n--- Optimal V_max Analysis (Weighted Cost Function) ---")
+    print("Finds the V_max where the normalized costs of time and power are balanced.")
+
+    # 1. Define headers with manual, hardcoded widths
+    header = f"{'Path':<8} | {'Optimal V_max (m/s)':<19} | {'Time Penalty (s)':<16} | {'Power Saved (%)':<15} |"
+    print(header)
+    print("-" * len(header))
+
+    weights = {'w_time': 0.5, 'w_power': 0.5}
+    path_list = sorted(paths_m_dict.items(), key=lambda item: item[1])
+
+    for name, distance_m in path_list:
+        # --- Calculation logic remains the same ---
+        t_min = 2 * np.sqrt(distance_m / max_accel)
+        v_peak = np.sqrt(distance_m * max_accel)
+        p_at_peak = max_force_n * v_peak
+        v_max_sweep = np.linspace(1.0, v_peak, 500)
+        costs = []
+        for v in v_max_sweep:
+            time_penalty_norm = (get_trapezoidal_time(distance_m, max_accel, v) - t_min) / t_min
+            power_usage_norm = (max_force_n * v) / p_at_peak
+            costs.append((weights['w_time'] * (time_penalty_norm**2)) + (weights['w_power'] * (power_usage_norm**2)))
+        min_cost_index = np.argmin(costs)
+        optimal_v = v_max_sweep[min_cost_index]
+        time_at_optimal = get_trapezoidal_time(distance_m, max_accel, optimal_v)
+        time_penalty_s = time_at_optimal - t_min
+        p_at_optimal = max_force_n * optimal_v
+        power_saved_percent = ((p_at_peak - p_at_optimal) / p_at_peak) * 100 if p_at_peak > 0 else 0
+
+        # 2. Format data using manual widths and append units, matching the reference format
+        print(f"{name:<8} | {optimal_v:>15.2f} m/s | {time_penalty_s:>15.3f}s | {power_saved_percent:>14.1f}% |")
+
+    print("-" * len(header))
+
+def simulate_all_paths(control_law_fn, **kwargs):
+    """Runs a simulation for all standard paths using the provided control law."""
+    return {name: run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_fn, **kwargs) for name, dist_m in PATHS_M.items()}
+
+# -------------------------
+# --- Presentation Mode ---
+# -------------------------
+
+def presentation_mode_pause(message="Press Enter to continue..."):
+    """
+    If in presentation mode, pauses execution. It will also manage showing
+    and closing any active plot window.
+    """
+    if not PRESENTATION_MODE:
+        return # In non-interactive mode, do nothing and let the script run.
+
+    # --- In Presentation Mode ---
+    plt.show(block=False)      # Has no effect if no plot is active
+    input(f"--- {message} ---")
+    plt.close('all')           # Has no effect if no plot is active
+    print("")
+
+def clear_terminal():
+    """Clears the terminal screen."""
+    # For Windows
+    if os.name == 'nt':
+        _ = os.system('cls')
+    # For macOS and Linux
+    else:
+        _ = os.system('clear')
+
 # =================================================================================
 # --- MAIN EXECUTION ---
 # =================================================================================
 
 def main():
     """Main function to run the simulation and outputs."""
+    clear_terminal()
+    
     try:
-        # --- Print static design targets and recommendations ---
-        print_static_design_params()
-        print_power_system_requirements()
-        print_bounds_analysis(PATHS_M, MAX_ACCELERATION_MS2, MAX_TRACTIVE_FORCE_N)
+        # 1) Max Tractive Force and Linear Acceleration
+        print_force_accel_params()
+        presentation_mode_pause()
 
-        # --- Simulation runs for detailed analysis ---
-        drag_race_sim_data = {}
-        for name, dist_m in PATHS_M.items():
-            drag_race_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_drag_race)
+        # 2) Identifying Sample Paths near Field Geometry Limits
+        plot_field_paths()
+        presentation_mode_pause()
 
-        trap_unlimited_sim_data = {}
-        for name, dist_m in PATHS_M.items():
-            trap_unlimited_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_trapezoidal_unlimited)
-        
-        trap_limited_sim_data = {}
-        for name, dist_m in PATHS_M.items():
-            trap_limited_sim_data[name] = run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_trapezoidal_limited, target_v_max=TARGET_V_MAX_MS)
-
-
-        # --- Output simulation results ---
+        # 3) Time Optimal 1D Motion Profiling
+        drag_race_sim_data = simulate_all_paths(control_law_drag_race)
+        plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
         print_sim_results(drag_race_sim_data, "Drag Race Simulation Results")
+        trap_unlimited_sim_data = simulate_all_paths(control_law_trapezoidal_unlimited)
+        plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Minimum Time)')
         print_sim_results(trap_unlimited_sim_data, "Minimum Time Profile Results")
-        print_sim_results(trap_limited_sim_data, f"V-Max Limited Trapezoidal Profile Results (@ {TARGET_V_MAX_MS} m/s)")
+        presentation_mode_pause()
 
-        # --- Generate a unified list of design points for plotting ---
+        # 4) Velocity-Constrained 1D Motion Profiles
         TIME_RATIOS_TO_TEST = np.arange(1.0, 2.0, 0.05)
-        
-        # --- Generate a curated, 6-color "Cyberpunk" palette ---
-        # We'll sample the 'plasma' colormap at 6 specific, non-adjacent points
-        # to get a cohesive but high-contrast set of colors.
-        colormap = plt.colormaps.get('plasma')
-        color_indices = [0.05, 0.25, 0.45, 0.65, 0.85, 0.95]
-        CYBERPUNK_COLORS = [colormap(i) for i in color_indices]
-        
-        design_points = []
-        path_for_design = PATHS_M['Diagonal'] # Use Diagonal path as the reference
+        path_for_design = PATHS_M['Diagonal']
+        design_points = generate_design_points(TIME_RATIOS_TO_TEST, path_for_design, MAX_ACCELERATION_MS2)
+        print_design_points(design_points, 'Diagonal', path_for_design, MAX_ACCELERATION_MS2)
+        plot_design_trajectories(distance_m=path_for_design, design_points=design_points)
+        plot_tradeoff_with_designs(paths_m_dict=PATHS_M, design_points=design_points)
+        presentation_mode_pause()
 
-        for i, ratio in enumerate(TIME_RATIOS_TO_TEST):
-            v_max = calculate_vmax_for_time_ratio(path_for_design, MAX_ACCELERATION_MS2, ratio)
-            if np.isnan(v_max) or v_max == 0: continue # Skip if no solution
-            
-            # Cycle through the curated 6-color palette
-            color = CYBERPUNK_COLORS[i % len(CYBERPUNK_COLORS)]
+        # 5) Bounding Optimal Top Speed via Design Heuristics
+        COURSE_VMAX_LOWER_BOUND = 2.0
+        COURSE_VMAX_UPPER_BOUND = 4.0
+        plot_normalized_tradeoff(paths_m_dict=PATHS_M, max_accel=MAX_ACCELERATION_MS2, max_force_n=MAX_TRACTIVE_FORCE_N)
+        print_bounds_analysis(PATHS_M, lower_bound=COURSE_VMAX_LOWER_BOUND, upper_bound=COURSE_VMAX_UPPER_BOUND)
+        presentation_mode_pause()
 
-            design_points.append({
-                'v_max': v_max,
-                'label': f'{ratio:.1%} Min Time',
-                'color': color
-            })
-            
-        # --- Plotting ---
-        if ENABLE_PLOTTING:
-            plot_field_paths()
-            
-            # Original kinematic plots
-            plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
-            plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Minimum Time)')
+        # 6) Optimizing Top Speed via Quadratic Cost Minimization
+        print_cost_function_results(PATHS_M, MAX_ACCELERATION_MS2, MAX_TRACTIVE_FORCE_N)
+        plot_sum_of_squares_cost(paths_m_dict=PATHS_M, max_accel=MAX_ACCELERATION_MS2, max_force_n=MAX_TRACTIVE_FORCE_N)
+        presentation_mode_pause()
 
-            # Plot 1: Show what the different profiles look like
-            plot_design_trajectories(
-                distance_m=path_for_design,
-                max_accel=MAX_ACCELERATION_MS2,
-                design_points=design_points
-            )
-            # Plot 2: Show where the design choices land on the trade-off curve
-            plot_tradeoff_with_designs(
-                paths_m_dict=PATHS_M,
-                max_accel=MAX_ACCELERATION_MS2,
-                max_force_n=MAX_TRACTIVE_FORCE_N,
-                design_points=design_points
-            )
+        # 7)
+        TIGHT_VMAX_LOWER_BOUND = 3.0
+        TIGHT_VMAX_UPPER_BOUND = 3.5
+        print_drivetrain_requirements(lower_bound_v=TIGHT_VMAX_LOWER_BOUND, upper_bound_v=TIGHT_VMAX_UPPER_BOUND)
 
-            # Plot 3: The new normalized plot for all paths
-            plot_normalized_tradeoff(
-                paths_m_dict=PATHS_M,
-                max_accel=MAX_ACCELERATION_MS2,
-                max_force_n=MAX_TRACTIVE_FORCE_N
-            )
-            # Plot 4: The final, definitive cost function plot for all paths
-            plot_sum_of_squares_cost(
-                paths_m_dict=PATHS_M,
-                max_accel=MAX_ACCELERATION_MS2,
-                max_force_n=MAX_TRACTIVE_FORCE_N
-            )
-
-            plt.show()
+        plt.show()
 
     except KeyboardInterrupt:
         print("\nSimulation aborted by user. Exiting.")
