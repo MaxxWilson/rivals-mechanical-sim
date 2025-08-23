@@ -8,8 +8,8 @@ import os
 # --- GLOBAL CONSTANTS AND ONE-TIME CALCULATIONS ---
 # =================================================================================
 # Script Control
-ENABLE_PLOTTING=False
-PRESENTATION_MODE=False
+ENABLE_PLOTTING=True
+PRESENTATION_MODE=True
 
 # Unit Conversions
 LBS_TO_KG = 0.453592
@@ -162,10 +162,8 @@ def print_drivetrain_requirements(lower_bound_v, upper_bound_v):
     """
     Calculates and prints the final proposed drivetrain requirements in a summary table.
     """
-    # --- Calculations for single-value metrics ---
+    # --- Calculations ---
     force_per_wheel = MAX_TRACTIVE_FORCE_N / NUM_DRIVE_MOTORS
-
-    # --- Calculations for ranged metrics ---
     p_mech_lower = MAX_TRACTIVE_FORCE_N * lower_bound_v
     p_mech_upper = MAX_TRACTIVE_FORCE_N * upper_bound_v
     p_elec_lower = p_mech_lower / SYSTEM_EFFICIENCY
@@ -177,61 +175,53 @@ def print_drivetrain_requirements(lower_bound_v, upper_bound_v):
 
     # --- Table Formatting ---
     w1, w2 = 35, 25
-    header = f"{'Requirement':<{w1}} | {'Value':<{w2}} |"
+    header = f"| {'Requirement':^{w1}} | {'Value':^{w2}} |"
     separator = "-" * len(header)
     title = "Proposed Drivetrain Requirements"
 
-    # Use the calculated width to format a clean header block
     print("\n" + separator)
-    print(f"| {title:^{len(header) - 4}} |") # Title is centered inside the table border
+    print(f"| {title:^{len(header) - 4}} |")
     print(separator)
     print(header)
     print(separator)
 
-    # Helper function for printing rows consistently
     def print_row(label, value_str):
-        print(f"{label:<{w1}} | {value_str:>{w2}} |")
+        print(f"| {label:<{w1}} | {value_str:>{w2}} |")
 
-    # --- Force / Acceleration Section ---
+    # --- Print Rows ---
     print_row("Max Acceleration", f"{MAX_ACCELERATION_MS2:.2f} m/s^2")
     print_row("Maximum Pushing Force", f"{MAX_TRACTIVE_FORCE_N:.2f} N")
     print_row("Maximum Force per Wheel", f"{force_per_wheel:.2f} N")
-    print("-" * len(header)) # Sub-separator
-
-    # --- Velocity / Power Section ---
-    vel_range_str = f"{lower_bound_v:.1f} - {upper_bound_v:.1f} m/s"
-    mech_pwr_range_str = f"{p_mech_lower:.1f}W - {p_mech_upper:.1f}W"
-    elec_pwr_range_str = f"{p_elec_lower:.1f}W - {p_elec_upper:.1f}W"
-    pwr_motor_range_str = f"{(p_elec_lower/NUM_DRIVE_MOTORS):.1f}W - {(p_elec_upper/NUM_DRIVE_MOTORS):.1f}W"
-
-    print_row("Maximum Linear Velocity", vel_range_str)
-    print_row("Peak Mechanical Power", mech_pwr_range_str)
-    print_row("Peak Electrical Power", elec_pwr_range_str)
-    print_row("Power per Motor", pwr_motor_range_str)
-    print("-" * len(header)) # Sub-separator
-
-    # --- Current Section (4S) ---
-    total_curr_4s_str = f"{i_total_4s_lower:.1f}A - {i_total_4s_upper:.1f}A"
-    motor_curr_4s_str = f"{i_motor_4s_lower:.1f}A - {i_motor_4s_upper:.1f}A"
-
-    print_row(f"Total Current (4S @ {BATTERY_VOLTAGE_4S:.1f}V)", total_curr_4s_str)
-    print_row("Current per Motor (4S)", motor_curr_4s_str)
-    
-    print("-" * len(header))
+    print(separator)
+    print_row("Maximum Linear Velocity", f"{lower_bound_v:.1f} - {upper_bound_v:.1f} m/s")
+    print_row("Peak Mechanical Power", f"{p_mech_lower:.1f}W - {p_mech_upper:.1f}W")
+    print_row("Peak Electrical Power", f"{p_elec_lower:.1f}W - {p_elec_upper:.1f}W")
+    print_row("Power per Motor", f"{(p_elec_lower/NUM_DRIVE_MOTORS):.1f}W - {(p_elec_upper/NUM_DRIVE_MOTORS):.1f}W")
+    print(separator)
+    print_row(f"Total Current (4S @ {BATTERY_VOLTAGE_4S:.1f}V)", f"{i_total_4s_lower:.1f}A - {i_total_4s_upper:.1f}A")
+    print_row("Current per Motor (4S)", f"{i_motor_4s_lower:.1f}A - {i_motor_4s_upper:.1f}A")
+    print(separator)
 
 def print_sim_results(sim_data, title):
-    """Prints a summary for a given simulation result."""
-    print("")
-    print(f"--- {title} ---")
-    header = f"{'Path':<8} | {'Peak Velocity (m/s)':<20}| {'Total Time (s)':<15}|"
+    """Prints a summary for a given simulation result in a formatted table."""
+    # 1. Define the table structure first to get the total width
+    header = f"| {'Path':<8} | {'Peak Velocity (m/s)':<20} | {'Total Time (s)':<15} |"
+    separator = "-" * len(header)
+
+    # 2. Print the full, formatted header block
+    print("\n" + separator)
+    print(f"| {title:^{len(header) - 4}} |")
+    print(separator)
     print(header)
-    print("-" * len(header))
+    print(separator)
+
+    # 3. Print the data rows using the established manual format
     for name, data in sim_data.items():
         peak_vel = np.max(data['velocity'])
         total_time = data['time'][-1]
-        print(f"{name:<8} | {peak_vel:>15.2f} m/s | {total_time:>13.3f}s |")
-    print("-" * len(header))
-    print("")
+        print(f"| {name:<8} | {peak_vel:>16.2f} m/s | {total_time:>14.3f}s |")
+        
+    print(separator)
 
 def plot_field_paths():
     """Generates a top-down plot of the field and simulated paths."""
@@ -542,68 +532,69 @@ def print_design_points(design_points, ref_path_name, ref_path_dist, max_accel):
     Prints a professional, full-context table of the generated design points,
     matching the requested right-aligned format.
     """
-    # First, calculate the baseline minimum time for the reference path
     t_min = 2 * np.sqrt(ref_path_dist / max_accel)
 
-    print(f"--- Design Point Analysis (Reference Path: {ref_path_name}, Min Time: {t_min:.3f}s) ---")
-
-    # Define column titles and derive widths from them for perfect alignment
+    # 1. Define the table structure and title first to get the total width
+    title = f"Design Point Analysis (Path: {ref_path_name}, Min Time: {t_min:.3f}s)"
     h1, h2, h3 = "Time Ratio (%)", "Time Penalty (s)", "Required V_max (m/s)"
     w1, w2, w3 = len(h1), len(h2), len(h3)
+    header = f"| {h1:<{w1}} | {h2:<{w2}} | {h3:<{w3}} |"
+    separator = "-" * len(header)
 
-    # Format the header with left-alignment
-    header = f"{h1:<{w1}} | {h2:<{w2}} | {h3:<{w3}} |"
+    # 2. Print the full, formatted header block
+    print("\n" + separator)
+    print(f"| {title:^{len(header) - 4}} |")
+    print(separator)
     print(header)
-    print("-" * len(header))
+    print(separator)
 
+    # 3. Print the data rows
     for point in design_points:
         ratio = point['ratio']
         v_max = point['v_max']
-        
-        # Calculate the absolute time penalty in seconds
         time_penalty_s = (ratio * t_min) - t_min
-        
-        # Build the strings with numbers and their units
-        ratio_str = f"{(ratio * 100):.0f}%"
+        ratio_str = f"{(ratio * 100):.0f} %"
         penalty_str = f"{time_penalty_s:.3f}s"
-        vmax_str = f"{v_max:.2f} m/s"
+        vmax_str = f"{v_max:.2f}m/s"
         
-        # Print the data strings with right-alignment within the column widths
-        print(f"{ratio_str:>{w1}} | {penalty_str:>{w2}} | {vmax_str:>{w3}} |")
+        print(f"| {ratio_str:>{w1}} | {penalty_str:>{w2}} | {vmax_str:>{w3}} |")
         
-    print("-" * len(header))
+    print(separator)
 
 def print_bounds_analysis(paths_m_dict, lower_bound, upper_bound, max_accel=MAX_ACCELERATION_MS2, max_force_n=MAX_TRACTIVE_FORCE_N):
     """
     Calculates and prints a full suite of performance metrics at a proposed upper-bound velocity.
     """
-    print("--- Design Speed Bounds Analysis ---")
+    # --- High-level context remains the same ---
+    print("\n--- Design Speed Bounds Analysis ---")
     print(f"Proposed Practical Speed Range: {lower_bound:.1f} m/s to {upper_bound:.1f} m/s\n")
-    print(f"Performance metrics at the proposed upper bound of {upper_bound:.1f} m/s:")
     
-    header = f"{'Path':<8} | {'Time Penalty (%)':<15} | {'Time Penalty (s)':<15} | {'Power Saved (%)':<16} | {'Power Saved (W)':<16} | {'Coast Time (%)':<13} |"
-    print(header)
-    print("-" * (len(header)))
+    # 1. Define the table structure and its specific title
+    title = f"Performance metrics at the proposed upper bound of {upper_bound:.1f} m/s"
+    header = f"| {'Path':<8} | {'Time Penalty (%)':<15} | {'Time Penalty (s)':<15} | {'Power Saved (%)':<16} | {'Power Saved (W)':<16} | {'Coast Time (%)':<13} |"
+    separator = "-" * len(header)
 
-    # Ensure paths are in a consistent order
+    # 2. Print the full, formatted header block for the table
+    print(separator)
+    print(f"| {title:^{len(header) - 4}} |")
+    print(separator)
+    print(header)
+    print(separator)
+
     path_list = sorted(paths_m_dict.items(), key=lambda item: item[1])
 
     for name, dist_m in path_list:
-        # --- Time Penalty Calculations ---
+        # --- Calculation logic is correct and remains the same ---
         t_min = 2 * np.sqrt(dist_m / max_accel)
         t_at_upper_bound = get_trapezoidal_time(dist_m, max_accel, upper_bound)
         time_penalty_seconds = t_at_upper_bound - t_min
         time_penalty_percent = (time_penalty_seconds / t_min) * 100
-
-        # --- Peak Velocity and Power Calculations ---
         v_peak_path = np.sqrt(max_accel * dist_m)
         v_actual_peak = min(upper_bound, v_peak_path)
         p_max = max_force_n * v_peak_path
         p_actual = max_force_n * v_actual_peak
         power_saved_watts = p_max - p_actual
         percent_power_saved = (power_saved_watts / p_max) * 100 if p_max > 0 else 0
-
-        # --- Coast Percentage Calculation ---
         ad_product = max_accel * dist_m
         if upper_bound < v_peak_path:
             coast_ratio = (ad_product - upper_bound**2) / (ad_product + upper_bound**2)
@@ -611,28 +602,35 @@ def print_bounds_analysis(paths_m_dict, lower_bound, upper_bound, max_accel=MAX_
         else:
             coast_percent = 0.0
 
-        print(f"{name:<8} | {time_penalty_percent:>15.2f}% | {time_penalty_seconds:>15.3f}s | {percent_power_saved:>15.2f}% | {power_saved_watts:>15.2f}W | {coast_percent:>13.2f}% |")
+        # Data printing uses the established manual format
+        print(f"| {name:<8} | {time_penalty_percent:>15.2f}% | {time_penalty_seconds:>15.3f}s | {percent_power_saved:>15.2f}% | {power_saved_watts:>15.2f}W | {coast_percent:>13.2f}% |")
     
-    print("-" * (len(header)))
+    print(separator)
 
 def print_cost_function_results(paths_m_dict, max_accel, max_force_n):
     """
     Calculates and prints a summary table of the optimal V_max for each path,
     using the same manual formatting as the bounds analysis table.
     """
-    print("\n--- Optimal V_max Analysis (Weighted Cost Function) ---")
-    print("Finds the V_max where the normalized costs of time and power are balanced.")
+    # 1. Define the table structure and titles first
+    title1 = "Optimal V_max Analysis (Weighted Cost Function)"
+    title2 = "Finds the V_max where the normalized costs of time and power are balanced."
+    header = f"| {'Path':<10} | {'Optimal V_max (m/s)':<22} | {'Time Penalty (s)':<18} | {'Power Saved (%)':<18} |"
+    separator = "-" * len(header)
 
-    # 1. Define headers with manual, hardcoded widths
-    header = f"{'Path':<8} | {'Optimal V_max (m/s)':<19} | {'Time Penalty (s)':<16} | {'Power Saved (%)':<15} |"
+    # 2. Print the full, formatted header block
+    print("\n" + separator)
+    print(f"| {title1:^{len(header) - 4}} |")
+    print(f"| {title2:^{len(header) - 4}} |")
+    print(separator)
     print(header)
-    print("-" * len(header))
+    print(separator)
 
+    # 3. The rest of the function remains unchanged
     weights = {'w_time': 0.5, 'w_power': 0.5}
     path_list = sorted(paths_m_dict.items(), key=lambda item: item[1])
 
     for name, distance_m in path_list:
-        # --- Calculation logic remains the same ---
         t_min = 2 * np.sqrt(distance_m / max_accel)
         v_peak = np.sqrt(distance_m * max_accel)
         p_at_peak = max_force_n * v_peak
@@ -649,10 +647,9 @@ def print_cost_function_results(paths_m_dict, max_accel, max_force_n):
         p_at_optimal = max_force_n * optimal_v
         power_saved_percent = ((p_at_peak - p_at_optimal) / p_at_peak) * 100 if p_at_peak > 0 else 0
 
-        # 2. Format data using manual widths and append units, matching the reference format
-        print(f"{name:<8} | {optimal_v:>15.2f} m/s | {time_penalty_s:>15.3f}s | {power_saved_percent:>14.1f}% |")
+        print(f"| {name:<10} | {optimal_v:>18.2f} m/s | {time_penalty_s:>17.3f}s | {power_saved_percent:>17.1f}% |")
 
-    print("-" * len(header))
+    print(separator)
 
 def simulate_all_paths(control_law_fn, **kwargs):
     """Runs a simulation for all standard paths using the provided control law."""
@@ -671,10 +668,10 @@ def presentation_mode_pause(message="Press Enter to continue..."):
         return # In non-interactive mode, do nothing and let the script run.
 
     # --- In Presentation Mode ---
+    print("")
     plt.show(block=False)      # Has no effect if no plot is active
     input(f"--- {message} ---")
     plt.close('all')           # Has no effect if no plot is active
-    print("")
 
 def clear_terminal():
     """Clears the terminal screen."""
