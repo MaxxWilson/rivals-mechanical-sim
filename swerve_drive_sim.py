@@ -176,11 +176,17 @@ def print_drivetrain_requirements(lower_bound_v, upper_bound_v):
     i_motor_4s_upper = i_total_4s_upper / NUM_DRIVE_MOTORS
 
     # --- Table Formatting ---
-    print("\n--- Proposed Drivetrain Requirements ---")
     w1, w2 = 35, 25
     header = f"{'Requirement':<{w1}} | {'Value':<{w2}} |"
+    separator = "-" * len(header)
+    title = "Proposed Drivetrain Requirements"
+
+    # Use the calculated width to format a clean header block
+    print("\n" + separator)
+    print(f"| {title:^{len(header) - 4}} |") # Title is centered inside the table border
+    print(separator)
     print(header)
-    print("-" * len(header))
+    print(separator)
 
     # Helper function for printing rows consistently
     def print_row(label, value_str):
@@ -726,12 +732,13 @@ def main():
         plot_sum_of_squares_cost(paths_m_dict=PATHS_M, max_accel=MAX_ACCELERATION_MS2, max_force_n=MAX_TRACTIVE_FORCE_N)
         presentation_mode_pause()
 
-        # 7)
+        # 7) Summarize Proposed Drivetrain Requirements
         TIGHT_VMAX_LOWER_BOUND = 3.0
         TIGHT_VMAX_UPPER_BOUND = 3.5
         print_drivetrain_requirements(lower_bound_v=TIGHT_VMAX_LOWER_BOUND, upper_bound_v=TIGHT_VMAX_UPPER_BOUND)
 
-        plt.show()
+        if ENABLE_PLOTTING:
+            plt.show()
 
     except KeyboardInterrupt:
         print("\nSimulation aborted by user. Exiting.")
