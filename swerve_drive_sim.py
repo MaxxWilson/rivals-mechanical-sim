@@ -7,7 +7,7 @@ import sys
 # --- GLOBAL CONSTANTS AND ONE-TIME CALCULATIONS ---
 # =================================================================================
 # Script Control
-ENABLE_PLOTTING=False
+ENABLE_PLOTTING=True
 
 # Unit Conversions
 LBS_TO_KG = 0.453592
@@ -136,18 +136,6 @@ def run_simulation(distance_m, max_accel, control_law_fn, target_v_max=None, dt=
 # --- OUTPUT FUNCTIONS ---
 # =================================================================================
 
-def calculate_vmax_for_coast_ratio(distance_m, max_accel, coast_ratio):
-    """Calculates the target V_max to achieve a desired coast time to total time ratio."""
-    # A coast ratio of 1 is a divide-by-zero, and negative is nonsense.
-    if not (0 <= coast_ratio < 1):
-        return float('nan')
-    
-    # Derivation: v_max^2 = ad * (1 - R_coast) / (1 + R_coast)
-    ad_product = max_accel * distance_m
-    scaling_factor = (1 - coast_ratio) / (1 + coast_ratio)
-    v_max_squared = ad_product * scaling_factor
-    return np.sqrt(v_max_squared)
-
 def get_trapezoidal_time(distance_m, max_accel, v_max):
     """Calculates the minimum time to traverse a distance with a trapezoidal profile, solved analytically."""
     # Velocity reached if the profile is a triangle (accel to midpoint, then decel)
@@ -158,96 +146,6 @@ def get_trapezoidal_time(distance_m, max_accel, v_max):
     else:
         time = (distance_m / v_max) + (v_max / max_accel)
     return time
-
-def plot_optimal_speed_tradeoff(paths_m_dict, max_accel, max_force_n, efficiency, voltage):
-    """
-    Generates a dual-axis plot to visualize the trade-off between trajectory time and
-    peak mechanical power for multiple paths.
-    """
-    plt.style.use('dark_background')
-    fig, ax1 = plt.subplots(figsize=(12, 8))
-    path_colors = {'Side': 'cyan', 'Diagonal': 'lime', 'Curved': 'magenta'}
-
-    # --- Calculate Y-Limit for Time Axis ---
-    # Find the longest path to determine the max time for the y-axis limit
-    longest_path_dist = max(paths_m_dict.values())
-    # Calculate the time at v=1 m/s for this path to set a reasonable plot ceiling
-    y_limit_time = get_trapezoidal_time(longest_path_dist, max_accel, 1.0)
-
-    # --- Time Calculations & Plotting (Left Axis) ---
-    v_max_sweep = np.linspace(0.1, 8.0, 400)
-    ax1.set_xlabel('Max Velocity Limit (m/s)', fontsize=12)
-    ax1.set_ylabel('Total Trajectory Time (s)', fontsize=12)
-    ax1.grid(True, linestyle='--', alpha=0.2)
-
-    for name, distance_m in paths_m_dict.items():
-        # Calculate time and the ideal 'knee' velocity for the current path
-        times = [get_trapezoidal_time(distance_m, max_accel, v) for v in v_max_sweep]
-        v_peak_ideal = np.sqrt(distance_m * max_accel)
-        color = path_colors.get(name, 'white') # Use path color, default to white
-
-        # Plot the time curve and its V_peak line
-        ax1.plot(v_max_sweep, times, color=color, lw=2.5, label=f'Time ({name})')
-        ax1.axvline(x=v_peak_ideal, color=color, linestyle=':', lw=2, label=f'V_peak ({name} = {v_peak_ideal:.2f} m/s)')
-
-    ax1.set_ylim(bottom=0, top=y_limit_time) # Set the new Y-limit
-
-    # --- Power Calculation & Plotting (Right Axis) ---
-    powers = [(max_force_n * v) for v in v_max_sweep]
-
-    ax2 = ax1.twinx()
-    color2 = 'yellow'
-    ax2.set_ylabel('Peak Mechanical Power (W)', color=color2, fontsize=12)
-    ax2.plot(v_max_sweep, powers, color=color2, lw=3, linestyle='--', label='Peak Mechanical Power')
-    ax2.tick_params(axis='y', labelcolor=color2)
-    ax2.set_ylim(bottom=0)
-
-    # --- Final Touches ---
-    fig.suptitle('Travel Time and Max Mechanical Power vs Velocity Limit (All Paths)', fontsize=16)
-    
-    # --- Reorder Legend for Clarity ---
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-
-    # Separate ax1 labels into 'Time' and 'V_peak' groups
-    time_lines, time_labels = [], []
-    vpeak_lines, vpeak_labels = [], []
-    for line, label in zip(lines1, labels1):
-        if label.startswith('Time'):
-            time_lines.append(line)
-            time_labels.append(label)
-        elif label.startswith('V_peak'):
-            vpeak_lines.append(line)
-            vpeak_labels.append(label)
-            
-    # Combine in the desired order: Times, then V_peaks, then Power
-    ordered_lines = time_lines + vpeak_lines + lines2
-    ordered_labels = time_labels + vpeak_labels + labels2
-    
-    ax1.legend(ordered_lines, ordered_labels, loc='upper center')
-    fig.tight_layout(rect=[0, 0, 1, 0.96])
-
-def plot_vmax_sweep(max_accel):
-    """Plots trajectory time vs. max velocity for the different paths."""
-    plt.style.use('dark_background')
-    fig, ax = plt.subplots(figsize=(10, 6))
-    path_colors = {'Side': 'cyan', 'Diagonal': 'lime', 'Curved': 'magenta'}
-
-    # Define the sweep range for max velocity
-    v_max_sweep = np.linspace(1.0, 8.0, 200) # from 0.1 to 6.0 m/s
-
-    for name, dist_m in PATHS_M.items():
-        # Calculate time for each v_max in the sweep using the analytical solution
-        times = [get_trapezoidal_time(dist_m, max_accel, v) for v in v_max_sweep]
-        ax.plot(v_max_sweep, times, label=f"{name} Path ({dist_m:.2f} m)", color=path_colors[name], lw=2)
-
-    ax.set_xlabel('Max Velocity Limit (m/s)')
-    ax.set_ylabel('Total Trajectory Time (s)')
-    ax.set_title('Path Times vs. Max Velocity Limit')
-    ax.legend()
-    ax.grid(True, linestyle='--', alpha=0.3)
-    ax.set_xlim([1.0, 8.0])
-    ax.set_ylim(bottom=0)
 
 def print_static_design_params():
     """Prints a summary of the static design parameters and requirements."""
@@ -276,7 +174,6 @@ def print_power_system_requirements():
     print(f"Current per Motor at 6S (@{BATTERY_VOLTAGE_6S}V): {I_PER_MOTOR_REQUIRED_A_6S:.2f} A")
     print("\n")
 
-
 def print_sim_results(sim_data, title):
     """Prints a summary for a given simulation result."""
     print(f"--- {title} ---")
@@ -288,7 +185,6 @@ def print_sim_results(sim_data, title):
         total_time = data['time'][-1]
         print(f"{name:<12} | {peak_vel:<20.2f} | {total_time:<15.3f}")
     print("-----------------------------------------------------\n")
-
 
 def plot_field_paths():
     """Generates a top-down plot of the field and simulated paths."""
@@ -322,65 +218,6 @@ def plot_field_paths():
     ax.set_title('Top-Down View of Simulated Paths')
     ax.legend(loc='upper left')
     ax.grid(True, alpha=0.2)
-
-def plot_trajectory_comparison(distance_m, max_accel):
-    """
-    Plots a comparison of different velocity profiles (min-time vs. trapezoidal)
-    for a fixed distance to illustrate the time vs. max_speed trade-off.
-    """
-    # --- 1. Calculate Baseline and Define V_max Targets ---
-    v_peak_ideal = np.sqrt(distance_m * max_accel)
-    # Set V_max targets as percentages of the ideal peak
-    vmax_75_percent = v_peak_ideal * 0.75
-    vmax_50_percent = v_peak_ideal * 0.50
-    vmax_25_percent = v_peak_ideal * 0.25
-
-    # --- 2. Run Simulations to Get Trajectory Data ---
-    sim_min_time = run_simulation(distance_m, max_accel, control_law_trapezoidal_unlimited)
-    time_min = sim_min_time['time'][-1]
-
-    sim_75_trap = run_simulation(distance_m, max_accel, control_law_trapezoidal_limited, target_v_max=vmax_75_percent)
-    time_75 = sim_75_trap['time'][-1]
-
-    sim_50_trap = run_simulation(distance_m, max_accel, control_law_trapezoidal_limited, target_v_max=vmax_50_percent)
-    time_50 = sim_50_trap['time'][-1]
-    
-    sim_25_trap = run_simulation(distance_m, max_accel, control_law_trapezoidal_limited, target_v_max=vmax_25_percent)
-    time_25 = sim_25_trap['time'][-1]
-
-    # --- 3. Plotting ---
-    plt.style.use('dark_background')
-    fig, ax = plt.subplots(figsize=(12, 7))
-
-    # Plot the min-time profile as a solid baseline
-    ax.plot(sim_min_time['time'], sim_min_time['velocity'],
-            label=f'Min-Time Profile (V_peak={v_peak_ideal:.2f} m/s) | Total Time: {time_min:.2f}s',
-            color='magenta', lw=2.5, linestyle='-')
-
-    # Plot the 75% trapezoid as dashed
-    ax.plot(sim_75_trap['time'], sim_75_trap['velocity'],
-            label=f'75% V_peak Limit ({vmax_75_percent:.2f} m/s) | Total Time: {time_75:.2f}s',
-            color='cyan', lw=2.5, linestyle='--')
-
-    # Plot the 50% trapezoid as dotted
-    ax.plot(sim_50_trap['time'], sim_50_trap['velocity'],
-            label=f'50% V_peak Limit ({vmax_50_percent:.2f} m/s) | Total Time: {time_50:.2f}s',
-            color='lime', lw=2.5, linestyle=':')
-
-    # Plot the 25% trapezoid as dash-dot
-    ax.plot(sim_25_trap['time'], sim_25_trap['velocity'],
-            label=f'25% V_peak Limit ({vmax_25_percent:.2f} m/s) | Total Time: {time_25:.2f}s',
-            color='yellow', lw=2.5, linestyle='-.')
-
-    # --- Final Touches ---
-    ax.set_title(f'Example Velocity Profiles', fontsize=16)
-    ax.set_xlabel('Time (s)', fontsize=12)
-    ax.set_ylabel('Velocity (m/s)', fontsize=12)
-    ax.legend(loc='upper right')
-    ax.grid(True, linestyle='--', alpha=0.3)
-    ax.set_ylim(bottom=0)
-    ax.set_xlim(left=0)
-    fig.tight_layout()
 
 def plot_kinematics(sim_data, title):
     """Generates a 3x3 plot for pos, vel, and accel for a given simulation."""
@@ -699,9 +536,9 @@ def main():
 
 
         # --- Output simulation results ---
-        # print_sim_results(drag_race_sim_data, "Drag Race Simulation Results")
-        # print_sim_results(trap_unlimited_sim_data, "Minimum Time Profile Results")
-        # print_sim_results(trap_limited_sim_data, f"V-Max Limited Trapezoidal Profile Results (@ {TARGET_V_MAX_MS} m/s)")
+        print_sim_results(drag_race_sim_data, "Drag Race Simulation Results")
+        print_sim_results(trap_unlimited_sim_data, "Minimum Time Profile Results")
+        print_sim_results(trap_limited_sim_data, f"V-Max Limited Trapezoidal Profile Results (@ {TARGET_V_MAX_MS} m/s)")
 
         # --- Generate a unified list of design points for plotting ---
         TIME_RATIOS_TO_TEST = np.arange(1.0, 2.0, 0.05)
@@ -731,17 +568,12 @@ def main():
             
         # --- Plotting ---
         if ENABLE_PLOTTING:
-            # plot_field_paths()
+            plot_field_paths()
             
-            # Original kinematic plots (useful for diagnostics)
-            # plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
-            # plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Minimum Time)')
+            # Original kinematic plots
+            plot_kinematics(drag_race_sim_data, title='Kinematic Profiles (Drag Race)')
+            plot_kinematics(trap_unlimited_sim_data, title='Kinematic Profiles (Minimum Time)')
 
-            # Generate the trajectory comparison plot for the Diagonal Path
-            # plot_trajectory_comparison(
-            #     distance_m=PATHS_M['Diagonal'],
-            #     max_accel=MAX_ACCELERATION_MS2
-            # )
             # Plot 1: Show what the different profiles look like
             plot_design_trajectories(
                 distance_m=path_for_design,
