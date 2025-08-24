@@ -7,7 +7,7 @@ from motor_data import Motor
 # --- BASE SIMULATION & MOTOR CONSTANTS ---
 # =================================================================================
 
-V_BAT = 3.3 * 4  # 13.2V
+V_BAT = 3.7 * 4  # 13.2V
 
 # --- Base values from swerve_drive_sim.py ---
 ROBOT_WEIGHT_LBS = 20.0
@@ -26,11 +26,11 @@ TARGET_WHEEL_SPEED_RPM = (TARGET_V_MAX_MS / WHEEL_RADIUS_M) * (60 / (2 * np.pi))
 
 # --- Motor Definitions ---
 motors = [
-    Motor(name='Repeat Ultra Mk2', v_applied=V_BAT, r_phase=0.053, kv_rpm=1367.74, i_no_load=0.5, gear_ratio=14.0),
-    Motor(name='Repeat Max Mk2', v_applied=V_BAT, r_phase=0.182, kv_rpm=2058.11, i_no_load=0.4, gear_ratio=27.0),
-    Motor(name='Repeat Pro', v_applied=V_BAT, r_phase=0.126, kv_rpm=2434.71, i_no_load=0.4, gear_ratio=27.0),
-    Motor(name='Repeat Compact', v_applied=V_BAT, r_phase=0.17, kv_rpm=2190.71, i_no_load=0.4, gear_ratio=22.6),
-    Motor(name='Repeat Mini Mk4', v_applied=V_BAT, r_phase=0.32, kv_rpm=3169.84, i_no_load=0.4, gear_ratio=28.5)
+    Motor(name='Repeat Ultra Mk2', v_applied=V_BAT, r_phase=0.053/2.0, kv_rpm=1367.74, i_no_load=0.5, gear_ratio=14.0),
+    Motor(name='Repeat Max Mk2', v_applied=V_BAT, r_phase=0.182/2.0, kv_rpm=2058.11, i_no_load=0.4, gear_ratio=27.0),
+    Motor(name='Repeat Pro', v_applied=V_BAT, r_phase=0.126/2.0, kv_rpm=2434.71, i_no_load=0.4, gear_ratio=27.0),
+    Motor(name='Repeat Compact', v_applied=V_BAT, r_phase=0.17/2.0, kv_rpm=2190.71, i_no_load=0.4, gear_ratio=22.6),
+    Motor(name='Repeat Mini Mk4', v_applied=V_BAT, r_phase=0.32/2.0, kv_rpm=3169.84, i_no_load=0.4, gear_ratio=28.5)
 ]
 motor_map = {m.name: m for m in motors}
 
