@@ -4,9 +4,9 @@ import matplotlib.pyplot as plt
 import sys
 import os
 
-# =================================================================================
-# --- GLOBAL CONSTANTS AND ONE-TIME CALCULATIONS ---
-# =================================================================================
+##################################################
+### Global Constants and One-Time Calculations ###
+##################################################
 # Script Control
 ENABLE_PLOTTING=True
 PRESENTATION_MODE=True
@@ -25,7 +25,7 @@ ROBOT_DIM_IN = 12.0
 BUMPER_THICKNESS_IN = 1.0
 TOTAL_ROBOT_WIDTH_IN = ROBOT_DIM_IN + (2 * BUMPER_THICKNESS_IN)
 ROBOT_WEIGHT_LBS = 22.5
-ROBOT_MASS_KG = ROBOT_WEIGHT_LBS * 0.453592
+ROBOT_MASS_KG = ROBOT_WEIGHT_LBS * LBS_TO_KG
 
 # Path Lengths
 PATH_SIDE_IN = FIELD_SIDE_IN - TOTAL_ROBOT_WIDTH_IN
@@ -51,30 +51,9 @@ DRIVE_KINEMATIC_CONSTANT_K = (13/44) * (30/14) / 2
 STEER_KINEMATIC_CONSTANT_J = (13/44) / 2
 TOTAL_DRIVE_RATIO = 1 / (2 * DRIVE_KINEMATIC_CONSTANT_K)
 
-TARGET_V_MAX_MS = 3.0
-
-# Drivetrain Performance Limits
-
-TORQUE_PER_MOTOR_BEFORE_SLIP_NM = (MAX_TRACTIVE_FORCE_N * WHEEL_RADIUS_M) / (NUM_DRIVE_MOTORS * TOTAL_DRIVE_RATIO)
-
-# Power System Requirements
-P_MECH_PEAK_W = MAX_TRACTIVE_FORCE_N * TARGET_V_MAX_MS
-P_ELEC_PEAK_W = P_MECH_PEAK_W / SYSTEM_EFFICIENCY
-I_TOTAL_REQUIRED_A_4S = P_ELEC_PEAK_W / BATTERY_VOLTAGE_4S
-I_TOTAL_REQUIRED_A_6S = P_ELEC_PEAK_W / BATTERY_VOLTAGE_6S
-I_PER_MOTOR_REQUIRED_A_4S = I_TOTAL_REQUIRED_A_4S / NUM_DRIVE_MOTORS
-I_PER_MOTOR_REQUIRED_A_6S = I_TOTAL_REQUIRED_A_6S / NUM_DRIVE_MOTORS
-
-# =================================================================================
-# --- SIMULATION ENGINE & CONTROL LAWS ---
-# =================================================================================
-
-def step_sim(position, velocity, acceleration, dt):
-    """Advances the physics simulation by one time step (dt)."""
-    new_velocity = velocity + acceleration * dt
-    new_position = position + new_velocity * dt
-    return new_position, new_velocity
-
+####################
+### Control Laws ###
+####################
 def control_law_drag_race(state):
     """Control law for constant max acceleration."""
     return state['max_accel']
@@ -98,6 +77,15 @@ def control_law_trapezoidal_limited(state):
         return 0
     else:
         return state['max_accel']
+
+##########################
+### Dynamic Simulation ###
+##########################
+def step_sim(position, velocity, acceleration, dt):
+    """Advances the physics simulation by one time step (dt)."""
+    new_velocity = velocity + acceleration * dt
+    new_position = position + new_velocity * dt
+    return new_position, new_velocity
 
 def run_simulation(distance_m, max_accel, control_law_fn, target_v_max=None, dt=0.00001, max_sim_time_s = 15.0):
     """Runs a generic simulation loop, using a callback to get acceleration."""
@@ -134,10 +122,14 @@ def run_simulation(distance_m, max_accel, control_law_fn, target_v_max=None, dt=
 
     return {"time": np.array(t_series), "position": np.array(pos_series), "velocity": np.array(vel_series), "acceleration": np.array(accel_series)}
 
-# =================================================================================
-# --- OUTPUT FUNCTIONS ---
-# =================================================================================
+def simulate_all_paths(control_law_fn, **kwargs):
+    """Runs a simulation for all standard paths using the provided control law."""
+    return {name: run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_fn, **kwargs) for name, dist_m in PATHS_M.items()}
 
+
+####################
+### Design Tools ###
+####################
 def get_trapezoidal_time(distance_m, max_accel, v_max):
     """Calculates the minimum time to traverse a distance with a trapezoidal profile, solved analytically."""
     # Velocity reached if the profile is a triangle (accel to midpoint, then decel)
@@ -149,80 +141,59 @@ def get_trapezoidal_time(distance_m, max_accel, v_max):
         time = (distance_m / v_max) + (v_max / max_accel)
     return time
 
-def print_force_accel_params():
-    """Prints a summary of the static design parameters and requirements."""
-    print("--------------------------------------")
-    print("--- Swerve Design Simulation Setup ---")
-    print("--------------------------------------")
-    print(f"Robot Mass: {ROBOT_MASS_KG:.2f} kg ({ROBOT_WEIGHT_LBS} lbs)")
-    print(f"Max Tractive Force: {MAX_TRACTIVE_FORCE_N:.2f} N")
-    print(f"Max Linear Acceleration: {MAX_ACCELERATION_MS2:.2f} m/s^2")
-
-def print_drivetrain_requirements(lower_bound_v, upper_bound_v):
+def calculate_vmax_for_time_ratio(distance_m, max_accel, time_ratio):
     """
-    Calculates and prints the final proposed drivetrain requirements in a summary table.
+    Calculates the target V_max that results in a total time equal to a percentage of the min time.
     """
-    # --- Calculations ---
-    force_per_wheel = MAX_TRACTIVE_FORCE_N / NUM_DRIVE_MOTORS
-    p_mech_lower = MAX_TRACTIVE_FORCE_N * lower_bound_v
-    p_mech_upper = MAX_TRACTIVE_FORCE_N * upper_bound_v
-    p_elec_lower = p_mech_lower / SYSTEM_EFFICIENCY
-    p_elec_upper = p_mech_upper / SYSTEM_EFFICIENCY
-    i_total_4s_lower = p_elec_lower / BATTERY_VOLTAGE_4S
-    i_total_4s_upper = p_elec_upper / BATTERY_VOLTAGE_4S
-    i_motor_4s_lower = i_total_4s_lower / NUM_DRIVE_MOTORS
-    i_motor_4s_upper = i_total_4s_upper / NUM_DRIVE_MOTORS
+    if time_ratio < 1.0:
+        return float('nan') # Cannot be faster than the minimum time
 
-    # --- Table Formatting ---
-    w1, w2 = 35, 25
-    header = f"| {'Requirement':^{w1}} | {'Value':^{w2}} |"
-    separator = "-" * len(header)
-    title = "Proposed Drivetrain Requirements"
+    # T_min is the time for a triangular profile
+    min_time = 2 * np.sqrt(distance_m / max_accel)
+    target_time = min_time * time_ratio
 
-    print("\n" + separator)
-    print(f"| {title:^{len(header) - 4}} |")
-    print(separator)
-    print(header)
-    print(separator)
+    # We need to solve the trapezoidal time equation for v: T = d/v + v/a
+    # This rearranges into a quadratic equation: v^2 - (a*T)v + ad = 0
+    a_quad = 1
+    b_quad = -max_accel * target_time
+    c_quad = max_accel * distance_m
 
-    def print_row(label, value_str):
-        print(f"| {label:<{w1}} | {value_str:>{w2}} |")
+    # Check if a solution exists
+    discriminant = b_quad**2 - 4 * a_quad * c_quad
+    if discriminant < 0:
+        return float('nan')
 
-    # --- Print Rows ---
-    print_row("Max Acceleration", f"{MAX_ACCELERATION_MS2:.2f} m/s^2")
-    print_row("Maximum Pushing Force", f"{MAX_TRACTIVE_FORCE_N:.2f} N")
-    print_row("Maximum Force per Wheel", f"{force_per_wheel:.2f} N")
-    print(separator)
-    print_row("Maximum Linear Velocity", f"{lower_bound_v:.1f} - {upper_bound_v:.1f} m/s")
-    print_row("Peak Mechanical Power", f"{p_mech_lower:.1f}W - {p_mech_upper:.1f}W")
-    print_row("Peak Electrical Power", f"{p_elec_lower:.1f}W - {p_elec_upper:.1f}W")
-    print_row("Power per Motor", f"{(p_elec_lower/NUM_DRIVE_MOTORS):.1f}W - {(p_elec_upper/NUM_DRIVE_MOTORS):.1f}W")
-    print(separator)
-    print_row(f"Total Current (4S @ {BATTERY_VOLTAGE_4S:.1f}V)", f"{i_total_4s_lower:.1f}A - {i_total_4s_upper:.1f}A")
-    print_row("Current per Motor (4S)", f"{i_motor_4s_lower:.1f}A - {i_motor_4s_upper:.1f}A")
-    print(separator)
+    # The quadratic formula gives two solutions for v. We want the smaller one,
+    # which corresponds to the velocity-limited profile on the left side of the time curve's minimum.
+    v_max = (-b_quad - np.sqrt(discriminant)) / (2 * a_quad)
+    return v_max
 
-def print_sim_results(sim_data, title):
-    """Prints a summary for a given simulation result in a formatted table."""
-    # 1. Define the table structure first to get the total width
-    header = f"| {'Path':<8} | {'Peak Velocity (m/s)':<20} | {'Total Time (s)':<15} |"
-    separator = "-" * len(header)
+def generate_design_points(time_ratios, ref_path_dist, max_accel):
+    """
+    Generates a list of design points by sweeping through time ratios
+    relative to the minimum time for a given reference path.
+    """
+    colormap = plt.colormaps.get('plasma')
+    color_indices = [0.05, 0.25, 0.45, 0.65, 0.85, 0.95]
+    cyberpunk_colors = [colormap(i) for i in color_indices]
 
-    # 2. Print the full, formatted header block
-    print("\n" + separator)
-    print(f"| {title:^{len(header) - 4}} |")
-    print(separator)
-    print(header)
-    print(separator)
+    design_points = []
+    for i, ratio in enumerate(time_ratios):
+        v_max = calculate_vmax_for_time_ratio(ref_path_dist, max_accel, ratio)
+        if np.isnan(v_max) or v_max == 0:
+            continue
 
-    # 3. Print the data rows using the established manual format
-    for name, data in sim_data.items():
-        peak_vel = np.max(data['velocity'])
-        total_time = data['time'][-1]
-        print(f"| {name:<8} | {peak_vel:>16.2f} m/s | {total_time:>14.3f}s |")
-        
-    print(separator)
+        color = cyberpunk_colors[i % len(cyberpunk_colors)]
+        design_points.append({
+            'ratio': ratio,
+            'v_max': v_max,
+            'color': color
+        })
+    return design_points
 
+##########################
+### Plotting Functions ###
+##########################
 def plot_field_paths():
     """Generates a top-down plot of the field and simulated paths."""
     plt.style.use('dark_background')
@@ -369,33 +340,6 @@ def plot_tradeoff_with_designs(paths_m_dict, design_points, max_accel=MAX_ACCELE
     ax1.legend(lines + lines2, labels + labels2, loc='upper center')
     fig.tight_layout(rect=[0, 0, 1, 0.96])
 
-def calculate_vmax_for_time_ratio(distance_m, max_accel, time_ratio):
-    """
-    Calculates the target V_max that results in a total time equal to a percentage of the min time.
-    """
-    if time_ratio < 1.0:
-        return float('nan') # Cannot be faster than the minimum time
-
-    # T_min is the time for a triangular profile
-    min_time = 2 * np.sqrt(distance_m / max_accel)
-    target_time = min_time * time_ratio
-
-    # We need to solve the trapezoidal time equation for v: T = d/v + v/a
-    # This rearranges into a quadratic equation: v^2 - (a*T)v + ad = 0
-    a_quad = 1
-    b_quad = -max_accel * target_time
-    c_quad = max_accel * distance_m
-
-    # Check if a solution exists
-    discriminant = b_quad**2 - 4 * a_quad * c_quad
-    if discriminant < 0:
-        return float('nan')
-
-    # The quadratic formula gives two solutions for v. We want the smaller one,
-    # which corresponds to the velocity-limited profile on the left side of the time curve's minimum.
-    v_max = (-b_quad - np.sqrt(discriminant)) / (2 * a_quad)
-    return v_max
-
 def plot_normalized_tradeoff(paths_m_dict, max_accel, max_force_n):
     """
     Generates a 3-row subplot of the normalized trade-off, one for each path,
@@ -504,28 +448,82 @@ def plot_sum_of_squares_cost(paths_m_dict, max_accel, max_force_n):
     ax.set_ylim(bottom=0)
     fig.tight_layout()
 
-def generate_design_points(time_ratios, ref_path_dist, max_accel):
-    """
-    Generates a list of design points by sweeping through time ratios
-    relative to the minimum time for a given reference path.
-    """
-    colormap = plt.colormaps.get('plasma')
-    color_indices = [0.05, 0.25, 0.45, 0.65, 0.85, 0.95]
-    cyberpunk_colors = [colormap(i) for i in color_indices]
+##########################
+### Printing Functions ###
+##########################
+def print_force_accel_params():
+    """Prints a summary of the static design parameters and requirements."""
+    print("--------------------------------------")
+    print("--- Swerve Design Simulation Setup ---")
+    print("--------------------------------------")
+    print(f"Robot Mass: {ROBOT_MASS_KG:.2f} kg ({ROBOT_WEIGHT_LBS} lbs)")
+    print(f"Max Tractive Force: {MAX_TRACTIVE_FORCE_N:.2f} N")
+    print(f"Max Linear Acceleration: {MAX_ACCELERATION_MS2:.2f} m/s^2")
 
-    design_points = []
-    for i, ratio in enumerate(time_ratios):
-        v_max = calculate_vmax_for_time_ratio(ref_path_dist, max_accel, ratio)
-        if np.isnan(v_max) or v_max == 0:
-            continue
+def print_drivetrain_requirements(lower_bound_v, upper_bound_v):
+    """
+    Calculates and prints the final proposed drivetrain requirements in a summary table.
+    """
+    # --- Calculations ---
+    force_per_wheel = MAX_TRACTIVE_FORCE_N / NUM_DRIVE_MOTORS
+    p_mech_lower = MAX_TRACTIVE_FORCE_N * lower_bound_v
+    p_mech_upper = MAX_TRACTIVE_FORCE_N * upper_bound_v
+    p_elec_lower = p_mech_lower / SYSTEM_EFFICIENCY
+    p_elec_upper = p_mech_upper / SYSTEM_EFFICIENCY
+    i_total_4s_lower = p_elec_lower / BATTERY_VOLTAGE_4S
+    i_total_4s_upper = p_elec_upper / BATTERY_VOLTAGE_4S
+    i_motor_4s_lower = i_total_4s_lower / NUM_DRIVE_MOTORS
+    i_motor_4s_upper = i_total_4s_upper / NUM_DRIVE_MOTORS
 
-        color = cyberpunk_colors[i % len(cyberpunk_colors)]
-        design_points.append({
-            'ratio': ratio,
-            'v_max': v_max,
-            'color': color
-        })
-    return design_points
+    # --- Table Formatting ---
+    w1, w2 = 35, 25
+    header = f"| {'Requirement':^{w1}} | {'Value':^{w2}} |"
+    separator = "-" * len(header)
+    title = "Proposed Drivetrain Requirements"
+
+    print("\n" + separator)
+    print(f"| {title:^{len(header) - 4}} |")
+    print(separator)
+    print(header)
+    print(separator)
+
+    def print_row(label, value_str):
+        print(f"| {label:<{w1}} | {value_str:>{w2}} |")
+
+    # --- Print Rows ---
+    print_row("Max Acceleration", f"{MAX_ACCELERATION_MS2:.2f} m/s^2")
+    print_row("Maximum Pushing Force", f"{MAX_TRACTIVE_FORCE_N:.2f} N")
+    print_row("Maximum Force per Wheel", f"{force_per_wheel:.2f} N")
+    print(separator)
+    print_row("Maximum Linear Velocity", f"{lower_bound_v:.1f} - {upper_bound_v:.1f} m/s")
+    print_row("Peak Mechanical Power", f"{p_mech_lower:.1f}W - {p_mech_upper:.1f}W")
+    print_row("Peak Electrical Power", f"{p_elec_lower:.1f}W - {p_elec_upper:.1f}W")
+    print_row("Power per Motor", f"{(p_elec_lower/NUM_DRIVE_MOTORS):.1f}W - {(p_elec_upper/NUM_DRIVE_MOTORS):.1f}W")
+    print(separator)
+    print_row(f"Total Current (4S @ {BATTERY_VOLTAGE_4S:.1f}V)", f"{i_total_4s_lower:.1f}A - {i_total_4s_upper:.1f}A")
+    print_row("Current per Motor (4S)", f"{i_motor_4s_lower:.1f}A - {i_motor_4s_upper:.1f}A")
+    print(separator)
+
+def print_sim_results(sim_data, title):
+    """Prints a summary for a given simulation result in a formatted table."""
+    # 1. Define the table structure first to get the total width
+    header = f"| {'Path':<8} | {'Peak Velocity (m/s)':<20} | {'Total Time (s)':<15} |"
+    separator = "-" * len(header)
+
+    # 2. Print the full, formatted header block
+    print("\n" + separator)
+    print(f"| {title:^{len(header) - 4}} |")
+    print(separator)
+    print(header)
+    print(separator)
+
+    # 3. Print the data rows using the established manual format
+    for name, data in sim_data.items():
+        peak_vel = np.max(data['velocity'])
+        total_time = data['time'][-1]
+        print(f"| {name:<8} | {peak_vel:>16.2f} m/s | {total_time:>14.3f}s |")
+        
+    print(separator)
 
 def print_design_points(design_points, ref_path_name, ref_path_dist, max_accel):
     """
@@ -651,14 +649,9 @@ def print_cost_function_results(paths_m_dict, max_accel, max_force_n):
 
     print(separator)
 
-def simulate_all_paths(control_law_fn, **kwargs):
-    """Runs a simulation for all standard paths using the provided control law."""
-    return {name: run_simulation(dist_m, MAX_ACCELERATION_MS2, control_law_fn, **kwargs) for name, dist_m in PATHS_M.items()}
-
-# -------------------------
-# --- Presentation Mode ---
-# -------------------------
-
+#########################
+### Presentation Mode ###
+#########################
 def presentation_mode_pause(message="Press Enter to continue..."):
     """
     If in presentation mode, pauses execution. It will also manage showing
@@ -682,10 +675,9 @@ def clear_terminal():
     else:
         _ = os.system('clear')
 
-# =================================================================================
-# --- MAIN EXECUTION ---
-# =================================================================================
-
+######################
+### Main Execution ###
+######################
 def main():
     """Main function to run the simulation and outputs."""
     clear_terminal()
