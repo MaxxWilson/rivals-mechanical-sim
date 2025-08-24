@@ -16,7 +16,8 @@ ultra_mk2 = Motor(
     r_phase=0.053/2.0,
     kv_rpm=1367.74,
     i_no_load=0.5,
-    gear_ratio=14.0
+    gear_ratio=14.0,
+    current_limit_a=5.0
 )
 
 repeat_max_mk2 = Motor(
@@ -25,7 +26,8 @@ repeat_max_mk2 = Motor(
     r_phase=0.182/2.0,
     kv_rpm=2058.11,
     i_no_load=0.4,
-    gear_ratio=27.0
+    gear_ratio=27.0,
+    current_limit_a=5.0
 )
 
 repeat_pro = Motor(
@@ -34,7 +36,8 @@ repeat_pro = Motor(
     r_phase=0.126/2.0,
     kv_rpm=2434.71,
     i_no_load=0.4,
-    gear_ratio=27.0
+    gear_ratio=27.0,
+    current_limit_a=5.0
 )
 
 repeat_compact = Motor(
@@ -43,7 +46,8 @@ repeat_compact = Motor(
     r_phase=0.17/2.0,
     kv_rpm=2190.71,
     i_no_load=0.4,
-    gear_ratio=22.6
+    gear_ratio=22.6,
+    current_limit_a=5.0
 )
 
 repeat_mini_mk4 = Motor(
@@ -52,7 +56,8 @@ repeat_mini_mk4 = Motor(
     r_phase=0.32/2.0,
     kv_rpm=3169.84,
     i_no_load=0.4,
-    gear_ratio=28.5
+    gear_ratio=28.5,
+    current_limit_a=5.0
 )
 
 # --- Analysis ---
