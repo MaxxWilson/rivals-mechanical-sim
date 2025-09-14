@@ -3,13 +3,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys
 import os
+from motor_modeling.motor_data import Motor
 
 ##################################################
 ### Global Constants and One-Time Calculations ###
 ##################################################
 # Script Control
 ENABLE_PLOTTING=True
-PRESENTATION_MODE=True
+PRESENTATION_MODE=False
 
 # Unit Conversions
 LBS_TO_KG = 0.453592
@@ -45,11 +46,28 @@ SYSTEM_EFFICIENCY = 0.75 # Estimated efficiency from battery to wheel (85%)
 MAX_TRACTIVE_FORCE_N = ROBOT_MASS_KG * GRAVITY_MS2 * COEFFICIENT_OF_FRICTION
 MAX_ACCELERATION_MS2 = MAX_TRACTIVE_FORCE_N / ROBOT_MASS_KG
 
-# --- Robot Design Variables ---
+# Swerve Constaints
 WHEEL_RADIUS_M = (2.75 * INCHES_TO_METERS) / 2
 DRIVE_KINEMATIC_CONSTANT_K = (13/44) * (30/14) / 2
 STEER_KINEMATIC_CONSTANT_J = (13/44) / 2
 TOTAL_DRIVE_RATIO = 1 / (2 * DRIVE_KINEMATIC_CONSTANT_K)
+
+##########################
+### Actuator Constants ###
+##########################
+# Selected motor from motor_eval analysis
+# Using a 5A continuous current limit as a stand-in for thermal limits
+CONTINUOUS_CURRENT_LIMIT_A = 5.0
+
+repeat_pro = Motor(
+    name='Repeat Pro',
+    v_applied=BATTERY_VOLTAGE_4S,
+    r_phase=0.126/2.0,
+    kv_rpm=2434.71,
+    i_no_load=0.4,
+    gear_ratio=27.0, # This is the motor's internal planetary gearbox ratio
+    current_limit_a=CONTINUOUS_CURRENT_LIMIT_A
+)
 
 ####################
 ### Control Laws ###
@@ -649,6 +667,137 @@ def print_cost_function_results(paths_m_dict, max_accel, max_force_n):
 
     print(separator)
 
+############################################
+### Actuator And Gear Ratio Optimization ###
+############################################
+def analyze_diff_swerve_gearing(target_v_max_ms):
+    """
+    Calculates the valid external gear ratio range for a differential swerve module
+    based on a target robot velocity and the selected motor's continuous performance.
+    """
+    print("\n" + "="*80)
+    print("--- Differential Swerve Gearing Analysis ---")
+    print(f"Analyzing for V_max = {target_v_max_ms:.2f} m/s with '{repeat_pro.name}' motor")
+    print("="*80 + "\n")
+
+    # 1. Calculate the required performance AT THE WHEEL
+    required_wheel_speed_rpm = (target_v_max_ms / WHEEL_RADIUS_M) * (60 / (2 * np.pi))
+    force_per_module_n = MAX_TRACTIVE_FORCE_N / (NUM_DRIVE_MOTORS / 2)
+    required_wheel_torque_nm = force_per_module_n * WHEEL_RADIUS_M
+
+    print("--- System Requirements (at each wheel) ---")
+    print(f"Required Wheel Speed for V_max: {required_wheel_speed_rpm:.1f} RPM")
+    print(f"Required Wheel Torque to Slip: {required_wheel_torque_nm:.2f} Nm\n")
+
+    # 2. Get the motor's continuous performance capabilities (at the motor output)
+    motor_cont_torque_nm = repeat_pro.max_continuous_output_torque
+    motor_cont_speed_rpm = repeat_pro.speed_at_max_continuous_torque
+
+    print(f"--- '{repeat_pro.name}' Continuous Performance (per motor) ---")
+    print(f"Max Continuous Torque (post-planetary): {motor_cont_torque_nm:.2f} Nm")
+    print(f"Speed at Max Continuous Torque: {motor_cont_speed_rpm:.1f} RPM\n")
+    
+    # 3. Calculate the valid range for the EXTERNAL gear ratio
+    # For a diff swerve in pure translation:
+    # wheel_torque = 2 * motor_torque * external_ratio
+    # motor_speed = wheel_speed * external_ratio
+    min_ratio_for_torque = required_wheel_torque_nm / (2 * motor_cont_torque_nm)
+    max_ratio_for_speed = motor_cont_speed_rpm / required_wheel_speed_rpm
+
+    print("--- External Gear Ratio Calculation ---")
+    print("This is the gearing between the two motors and the wheel.")
+    print(f"Minimum ratio to achieve slip torque: {min_ratio_for_torque:.2f}:1")
+    print(f"Maximum ratio to achieve target speed: {max_ratio_for_speed:.2f}:1\n")
+
+    # 4. Conclusion and Recommendation
+    print("--- Conclusion ---")
+    if max_ratio_for_speed > min_ratio_for_torque:
+        print("\033[92m[SUCCESS]\033[0m A valid gearing solution exists.")
+        print(f"Your external gear ratio must be between \033[1m{min_ratio_for_torque:.2f}:1\033[0m and \033[1m{max_ratio_for_speed:.2f}:1\033[0m.")
+        
+        recommended_ratio = (min_ratio_for_torque + max_ratio_for_speed) / 2
+        print(f"A recommended target would be around \033[96m{recommended_ratio:.2f}:1\033[0m to balance speed and torque headroom.")
+    else:
+        print("\033[91m[FAIL]\033[0m No valid gearing solution exists with this motor/current limit.")
+        print("The speed requirement demands a ratio that is too low to meet the torque requirement.")
+    print("="*80 + "\n")
+
+def plot_2d_design_space(motor_obj):
+    """
+    Calculates and plots a 2D design space for swerve gearing, showing the impact
+    of motor pinion and wheel diameter on top speed and continuous tractive force.
+    """
+    # --- Define the sweep ranges for our two design variables ---
+    z1_range = np.arange(13, 21, 1)  # 13 to 20 teeth
+    wheel_diameter_in_range = np.linspace(2.25, 2.75, 20) # 2.5" to 4.0" wheels
+
+    # --- Create 2D grids to store the results ---
+    # Note: meshgrid is (Y, X) so we use (wheel, z1)
+    speed_grid_ms = np.zeros((len(wheel_diameter_in_range), len(z1_range)))
+    force_grid_n = np.zeros((len(wheel_diameter_in_range), len(z1_range)))
+
+    # --- Use the motor's no-load speed as per your calculation ---
+    # This represents the absolute maximum theoretical speed.
+    motor_noload_rpm = motor_obj.output_no_load_speed_rpm
+    motor_cont_torque_nm = motor_obj.max_continuous_output_torque
+
+    # --- Iterate over every combination of the two variables ---
+    for i, z1 in enumerate(z1_range):
+        for j, wheel_dia_in in enumerate(wheel_diameter_in_range):
+            # Correct kinematics as you described:
+            speed_reduction = z1 / 44.0
+            speed_increase = 30.0 / 14.0
+            total_speed_multiplier = speed_reduction * speed_increase
+            
+            # Torque multiplication is the inverse of speed multiplication
+            total_torque_multiplier = 1.0 / total_speed_multiplier
+
+            # Calculate wheel performance
+            wheel_rpm = motor_noload_rpm * total_speed_multiplier
+            wheel_torque_nm = 2 * motor_cont_torque_nm * total_torque_multiplier
+
+            # Convert wheel performance to robot performance
+            wheel_radius_m = (wheel_dia_in * INCHES_TO_METERS) / 2
+            robot_speed_ms = wheel_rpm * (2 * np.pi * wheel_radius_m) / 60
+            robot_force_n = (wheel_torque_nm / wheel_radius_m) * (NUM_DRIVE_MOTORS / 2)
+
+            # Store results in our grids
+            speed_grid_ms[j, i] = robot_speed_ms
+            force_grid_n[j, i] = robot_force_n
+            
+    # --- Plotting ---
+    plt.style.use('dark_background')
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 9))
+    fig.suptitle('Swerve Drive Design Space (Repeat Pro @ 5A Continuous)', fontsize=18)
+    
+    # --- Speed Plot (Left) ---
+    speed_map = ax1.imshow(speed_grid_ms, extent=[min(z1_range)-0.5, max(z1_range)+0.5, min(wheel_diameter_in_range), max(wheel_diameter_in_range)],
+                           origin='lower', aspect='auto', cmap='viridis', interpolation='bilinear')
+    fig.colorbar(speed_map, ax=ax1, label='Max Robot Speed (m/s)')
+    # Add the critical 3.0 m/s contour line
+    speed_contour = ax1.contour(speed_grid_ms, levels=[3.0], extent=[min(z1_range)-0.5, max(z1_range)+0.5, min(wheel_diameter_in_range), max(wheel_diameter_in_range)],
+                                colors='white', linestyles='--', linewidths=2.5)
+    ax1.clabel(speed_contour, inline=True, fmt='%.1f m/s', fontsize=12)
+    ax1.set_title('Design Space for Top Speed', fontsize=14)
+    ax1.set_xlabel('Teeth on Motor Pinion (Z1)', fontsize=12)
+    ax1.set_ylabel('Wheel Diameter (inches)', fontsize=12)
+    ax1.set_xticks(z1_range)
+
+    # --- Force Plot (Right) ---
+    force_map = ax2.imshow(force_grid_n, extent=[min(z1_range)-0.5, max(z1_range)+0.5, min(wheel_diameter_in_range), max(wheel_diameter_in_range)],
+                           origin='lower', aspect='auto', cmap='plasma', interpolation='bilinear')
+    fig.colorbar(force_map, ax=ax2, label='Max Continuous Tractive Force (N)')
+    # Add the critical 125 N contour line
+    force_contour = ax2.contour(force_grid_n, levels=[MAX_TRACTIVE_FORCE_N], extent=[min(z1_range)-0.5, max(z1_range)+0.5, min(wheel_diameter_in_range), max(wheel_diameter_in_range)],
+                                colors='white', linestyles='--', linewidths=2.5)
+    ax2.clabel(force_contour, inline=True, fmt='%.0f N', fontsize=12)
+    ax2.set_title('Design Space for Tractive Force', fontsize=14)
+    ax2.set_xlabel('Teeth on Motor Pinion (Z1)', fontsize=12)
+    ax2.set_ylabel('Wheel Diameter (inches)', fontsize=12)
+    ax2.set_xticks(z1_range)
+
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+
 #########################
 ### Presentation Mode ###
 #########################
@@ -701,13 +850,13 @@ def main():
         presentation_mode_pause()
 
         # 4) Velocity-Constrained 1D Motion Profiles
-        TIME_RATIOS_TO_TEST = np.arange(1.0, 2.0, 0.05)
-        path_for_design = PATHS_M['Diagonal']
-        design_points = generate_design_points(TIME_RATIOS_TO_TEST, path_for_design, MAX_ACCELERATION_MS2)
-        print_design_points(design_points, 'Diagonal', path_for_design, MAX_ACCELERATION_MS2)
-        plot_design_trajectories(distance_m=path_for_design, design_points=design_points)
-        plot_tradeoff_with_designs(paths_m_dict=PATHS_M, design_points=design_points)
-        presentation_mode_pause()
+        # TIME_RATIOS_TO_TEST = np.arange(1.0, 2.0, 0.05)
+        # path_for_design = PATHS_M['Diagonal']
+        # design_points = generate_design_points(TIME_RATIOS_TO_TEST, path_for_design, MAX_ACCELERATION_MS2)
+        # print_design_points(design_points, 'Diagonal', path_for_design, MAX_ACCELERATION_MS2)
+        # plot_design_trajectories(distance_m=path_for_design, design_points=design_points)
+        # plot_tradeoff_with_designs(paths_m_dict=PATHS_M, design_points=design_points)
+        # presentation_mode_pause()
 
         # 5) Bounding Optimal Top Speed via Design Heuristics
         COURSE_VMAX_LOWER_BOUND = 2.0
@@ -725,6 +874,10 @@ def main():
         TIGHT_VMAX_LOWER_BOUND = 3.0
         TIGHT_VMAX_UPPER_BOUND = 3.5
         print_drivetrain_requirements(lower_bound_v=TIGHT_VMAX_LOWER_BOUND, upper_bound_v=TIGHT_VMAX_UPPER_BOUND)
+
+        # 8) Having selected Repeat Pro, optimize gear ratio
+        analyze_diff_swerve_gearing(TIGHT_VMAX_LOWER_BOUND)
+        plot_2d_design_space(repeat_pro)
 
         if ENABLE_PLOTTING:
             plt.show()
